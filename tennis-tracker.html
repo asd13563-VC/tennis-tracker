@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="網球記錄">
+  <title>🎾 網球比賽記錄</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { background: #0a0f1e; font-family: 'Noto Sans TC', sans-serif; overscroll-behavior: none; }
+    #root { min-height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script type="text/babel" data-presets="react">
+    const { useState, useCallback } = React;
+
+
+
+// ── Constants ──────────────────────────────────────────────────────────────
+const SCORE_SEQ = ["0", "15", "30", "40"];
+
+const MATCH_FORMATS = [
+  { id: "s6_noad",    label: "一盤六局（Deuce搶一分）", sets: 1, gamesPerSet: 6, noAd: true,  thirdSetSuper: false },
+  { id: "s6",         label: "一盤六局",                 sets: 1, gamesPerSet: 6, noAd: false, thirdSetSuper: false },
+  { id: "s8",         label: "一盤八局",                 sets: 1, gamesPerSet: 8, noAd: false, thirdSetSuper: false },
+  { id: "bo3_super",  label: "三盤兩勝（第三盤 Super Tiebreak）", sets: 3, gamesPerSet: 6, noAd: false, thirdSetSuper: true },
+  { id: "bo3_full",   label: "三盤兩勝（完整三盤六局）", sets: 3, gamesPerSet: 6, noAd: false, thirdSetSuper: false },
+];
+
+const SERVE_TYPES = ["Flat serve", "Slice serve", "Kick serve"];
+const SHOT_TYPES = [
+  "底線抽球", "切球", "中場攻擊球", "吊高球",
+  "半截擊", "網前截擊", "中場截擊",
+  "高壓扣殺（未落地）", "高壓扣殺（已落地）", "底線扣殺",
+  "底線放短球", "網前放短球",
+];
+const OUTCOME_TYPES = [
+  { id: "winner", label: "Winner ✦", color: "#00e5a0" },
+  { id: "forced_error", label: "受迫失誤", color: "#f5a623" },
+  { id: "unforced_error", label: "非受迫失誤", color: "#ff6b6b" },
+  { id: "continue", label: "繼續對打", color: "#7b9cff" },
+];
+
+const initScore = () => ({ sets: [], currentSet: { p1: 0, p2: 0 }, currentGame: { p1: 0, p2: 0 }, tiebreak: false });
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function gameScoreLabel(g, tiebreak, noAd) {
+  if (tiebreak) return `${g.p1} - ${g.p2}`;
+  const s1 = SCORE_SEQ[g.p1] ?? "AD";
+  const s2 = SCORE_SEQ[g.p2] ?? "AD";
+  if (g.p1 >= 3 && g.p2 >= 3) {
+    if (noAd) return "Deuce（搶分）";
+    if (g.p1 === g.p2) return "Deuce";
+    return g.p1 > g.p2 ? "Ad P1" : "Ad P2";
+  }
+  return `${s1} - ${s2}`;
+}
+
+function advanceGame(game, winner, noAd) {
+  const g = { ...game };
+  g[winner] += 1;
+  const other = winner === "p1" ? "p2" : "p1";
+
+  if (noAd) {
+    // noAd：雙方都到40（index=3）才是Deuce，Deuce後再得一分直接得局
+    // 若加分後 winner >= 4 且 other < 3，正常得局
+    // 若加分後雙方都 >= 3（含剛到Deuce），繼續
+    // 若已在Deuce（雙方都=3）winner 再得一分（變4），直接得局
+    if (g[winner] >= 4 && g[other] < 3) return { won: winner, game: { p1: 0, p2: 0 } };
+    if (g[winner] >= 4 && g[other] >= 3) return { won: winner, game: { p1: 0, p2: 0 } }; // Deuce後搶分
+    if (g[winner] >= 3 && g[other] >= 3) return { won: null, game: g }; // 剛到Deuce，繼續
+    if (g[winner] >= 4) return { won: winner, game: { p1: 0, p2: 0 } };
+    return { won: null, game: g };
+  }
+
+  // 一般Deuce邏輯（需連贏兩分）
+  if (g.p1 >= 3 && g.p2 >= 3) {
+    if (g[winner] - g[other] >= 2) return { won: winner, game: { p1: 0, p2: 0 } };
+    return { won: null, game: g };
+  }
+  if (g[winner] >= 4) return { won: winner, game: { p1: 0, p2: 0 } };
+  return { won: null, game: g };
+}
+
+function advanceTiebreak(game, winner) {
+  const g = { ...game };
+  g[winner] += 1;
+  const other = winner === "p1" ? "p2" : "p1";
+  if (g[winner] >= 7 && g[winner] - g[other] >= 2) return { won: winner, game: { p1: 0, p2: 0 } };
+  return { won: null, game: g };
+}
+
+function advanceSuperTiebreak(game, winner) {
+  const g = { ...game };
+  g[winner] += 1;
+  const other = winner === "p1" ? "p2" : "p1";
+  if (g[winner] >= 10 && g[winner] - g[other] >= 2) return { won: winner, game: { p1: 0, p2: 0 } };
+  return { won: null, game: g };
+}
+
+function advanceSet(set, winner, tiebreak, gamesPerSet) {
+  const s = { ...set };
+  s[winner] += 1;
+  const other = winner === "p1" ? "p2" : "p1";
+  if (tiebreak) return { won: winner, newSet: { p1: 0, p2: 0 }, tiebreak: false, superTiebreak: false };
+  if (s[winner] >= gamesPerSet && s[winner] - s[other] >= 2) return { won: winner, newSet: { p1: 0, p2: 0 }, tiebreak: false, superTiebreak: false };
+  if (s[winner] === gamesPerSet + 1) return { won: winner, newSet: { p1: 0, p2: 0 }, tiebreak: false, superTiebreak: false };
+  const newTiebreak = s.p1 === gamesPerSet && s.p2 === gamesPerSet;
+  return { won: null, newSet: s, tiebreak: newTiebreak, superTiebreak: false };
+}
+
+// ── Point tree node builder ─────────────────────────────────────────────────
+function createPoint(server, scoreSnapshot) {
+  return {
+    id: Date.now() + Math.random(),
+    server,
+    scoreSnapshot: scoreSnapshot ?? null, // { sets, currentSet, currentGame } 這分開始時的比分
+    serve1: null,
+    serve2: null,
+    rallyEvents: [],
+    rallyCount: 0,
+    pointWinner: null,
+    pointEndReason: null,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
+function TennisTracker() {
+  const [p1Name, setP1Name] = useState("球員 A");
+  const [p2Name, setP2Name] = useState("球員 B");
+  const [matchStarted, setMatchStarted] = useState(false);
+  const [format, setFormat] = useState(MATCH_FORMATS[0]);
+  const [initialServer, setInitialServer] = useState("p1");
+  const [server, setServer] = useState("p1");
+  const [score, setScore] = useState(initScore());
+  const [superTiebreak, setSuperTiebreak] = useState(false); // 第三盤 Super Tiebreak 模式
+  const [points, setPoints] = useState([]);
+  const [currentPoint, setCurrentPoint] = useState(null);
+  const [phase, setPhase] = useState("serve1"); // serve1 | serve2 | rally
+  const [showStats, setShowStats] = useState(false);
+  const [matchOver, setMatchOver] = useState(false);
+  const [matchWinner, setMatchWinner] = useState(null);
+  const [selectedRallyShot, setSelectedRallyShot] = useState(null);
+  const [nextHitter, setNextHitter] = useState(null);
+  const [pendingErrorOutcome, setPendingErrorOutcome] = useState(null);
+  const [pendingServeType, setPendingServeType] = useState(null);
+  const [pendingServeLanding, setPendingServeLanding] = useState(null);
+  const [pendingRallyLanding, setPendingRallyLanding] = useState(null);
+  const [pendingShotLanding, setPendingShotLanding] = useState(null);
+  const [activeTab, setActiveTab] = useState("record"); // "record" | "stats" | "replay"
+
+  const playerName = (p) => (p === "p1" ? p1Name : p2Name);
+
+  // ── Start match ──────────────────────────────────────────────────────────
+  const startMatch = () => {
+    setInitialServer(server);
+    setMatchStarted(true);
+    const initSnap = { sets: [], currentSet: { p1: 0, p2: 0 }, currentGame: { p1: 0, p2: 0 } };
+    setCurrentPoint(createPoint(server, initSnap));
+    setPhase("serve1");
+  };
+
+  // ── Serve handlers ───────────────────────────────────────────────────────
+  const handleServe1In = () => {
+    setCurrentPoint((p) => ({ ...p, serve1: "in" }));
+    setPendingServeType("serve1in");
+  };
+
+  const handleServe1Ace = () => {
+    setCurrentPoint((p) => ({ ...p, serve1: "in" }));
+    setPendingServeType("serve1ace");
+  };
+
+  const handleServe1Fault = () => {
+    setCurrentPoint((p) => ({ ...p, serve1: "fault" }));
+    setPhase("serve2");
+  };
+
+  const handleServe2In = () => {
+    setCurrentPoint((p) => ({ ...p, serve2: "in" }));
+    setPendingServeType("serve2in");
+  };
+
+  const handleServe2Ace = () => {
+    setCurrentPoint((p) => ({ ...p, serve2: "in" }));
+    setPendingServeType("serve2ace");
+  };
+
+  const handleDoubleFault = () => {
+    const loser = currentPoint.server;
+    const winner = loser === "p1" ? "p2" : "p1";
+    finishPoint({ ...currentPoint, serve2: "fault", pointWinner: winner, pointEndReason: "double_fault" });
+  };
+
+  const handleServeTypeChoice = (serveType) => {
+    const isAce = pendingServeType === "serve1ace" || pendingServeType === "serve2ace";
+    setCurrentPoint((p) => ({ ...p, serveType }));
+    setPendingServeType(null);
+    setPendingServeLanding({ serveType, isAce });
+  };
+
+  const handleServeLanding = (landing) => {
+    const { isAce } = pendingServeLanding;
+    const gamePts = (score.currentGame.p1 ?? 0) + (score.currentGame.p2 ?? 0);
+    const serveSide = gamePts % 2 === 0 ? "deuce" : "ad";
+    setCurrentPoint((p) => ({ ...p, serveLanding: landing, serveSide }));
+    setPendingServeLanding(null);
+    if (isAce) {
+      finishPoint({ ...currentPoint, serveType: pendingServeLanding.serveType, serveLanding: landing, pointWinner: currentPoint.server, pointEndReason: "ace" });
+    } else {
+      setPhase("rally");
+      setSelectedRallyShot(null);
+      setNextHitter(server === "p1" ? "p2" : "p1");
+    }
+  };
+
+  // ── Rally handlers ───────────────────────────────────────────────────────
+  const startRallyShot = (shotBy, shotType) => {
+    // 選完球種 → 先選落點
+    setPendingShotLanding({ shotBy, shotType });
+    setSelectedRallyShot(null);
+  };
+
+  const handleShotLanding = (landing) => {
+    if (!pendingShotLanding) return;
+    const { shotBy, shotType } = pendingShotLanding;
+    setSelectedRallyShot({ shotBy, shotType, landing });
+    setPendingShotLanding(null);
+  };
+
+  const handleRallyOutcome = (outcome) => {
+    if (!selectedRallyShot) return;
+    const { shotBy, shotType, landing } = selectedRallyShot;
+
+    if (outcome.id === "continue") {
+      const event = { shotBy, shotType, outcome: outcome.id, hand: null, landing: landing ?? null };
+      setCurrentPoint((p) => ({
+        ...p,
+        rallyEvents: [...p.rallyEvents, event],
+        rallyCount: p.rallyCount + 1,
+      }));
+      setSelectedRallyShot(null);
+      setNextHitter(shotBy === "p1" ? "p2" : "p1");
+    } else if (outcome.id === "winner") {
+      const event = { shotBy, shotType, outcome: outcome.id, hand: null, landing: landing ?? null };
+      const updated = {
+        ...currentPoint,
+        rallyEvents: [...currentPoint.rallyEvents, event],
+        rallyCount: currentPoint.rallyCount + 1,
+        pointWinner: shotBy,
+        pointEndReason: outcome.id,
+      };
+      setSelectedRallyShot(null);
+      finishPoint(updated);
+    } else {
+      // forced_error or unforced_error → 先選正反拍
+      setPendingErrorOutcome({ outcome, shotBy, shotType, landing: landing ?? null });
+      setSelectedRallyShot(null);
+    }
+  };
+
+  const handleHandChoice = (hand) => {
+    if (!pendingErrorOutcome) return;
+    const { outcome, shotBy, shotType, landing } = pendingErrorOutcome;
+    const pointWinner = shotBy === "p1" ? "p2" : "p1";
+    const event = { shotBy, shotType, outcome: outcome.id, hand, landing: landing ?? null };
+    const updated = {
+      ...currentPoint,
+      rallyEvents: [...currentPoint.rallyEvents, event],
+      rallyCount: currentPoint.rallyCount + 1,
+      pointWinner,
+      pointEndReason: outcome.id,
+    };
+    setPendingErrorOutcome(null);
+    finishPoint(updated);
+  };
+
+  // ── Undo last point ──────────────────────────────────────────────────────
+  const undoLastPoint = () => {
+    if (points.length === 0) return;
+    const newPoints = points.slice(0, -1);
+
+    // Replay all remaining points to reconstruct score & server
+    let replayScore = initScore();
+    let replayServer = initialServer;
+
+    const applyPoint = (pt) => {
+      const winner = pt.pointWinner;
+      const result = replayScore.tiebreak
+        ? advanceTiebreak({ ...replayScore.currentGame }, winner)
+        : advanceGame({ ...replayScore.currentGame }, winner);
+
+      if (result.won) {
+        const setResult = advanceSet({ ...replayScore.currentSet }, result.won, replayScore.tiebreak);
+        replayScore.currentGame = result.game;
+        if (setResult.won) {
+          replayScore.sets = [...replayScore.sets, {
+            p1: replayScore.currentSet.p1 + (result.won === "p1" ? 1 : 0),
+            p2: replayScore.currentSet.p2 + (result.won === "p2" ? 1 : 0),
+          }];
+          replayScore.currentSet = setResult.newSet;
+          replayScore.tiebreak = setResult.tiebreak;
+        } else {
+          replayScore.currentSet = setResult.newSet;
+          replayScore.tiebreak = setResult.tiebreak;
+        }
+        replayServer = replayServer === "p1" ? "p2" : "p1";
+      } else {
+        replayScore.currentGame = result.game;
+      }
+    };
+
+    newPoints.forEach(applyPoint);
+
+    setPoints(newPoints);
+    setScore(replayScore);
+    setServer(replayServer);
+    setSuperTiebreak(false);
+    const undoSnap = { sets: replayScore.sets, currentSet: replayScore.currentSet, currentGame: replayScore.currentGame };
+    setCurrentPoint(createPoint(replayServer, undoSnap));
+    setPhase("serve1");
+    setSelectedRallyShot(null);
+    setNextHitter(null);
+    setPendingErrorOutcome(null);
+    setPendingServeType(null);
+    setPendingServeLanding(null);
+    setPendingRallyLanding(null);
+    setPendingShotLanding(null);
+    setMatchOver(false);
+    setMatchWinner(null);
+  };
+
+  // ── Export helpers ───────────────────────────────────────────────────────
+  const exportJSON = () => {
+    const data = {
+      matchInfo: {
+        format: format.label,
+        player1: p1Name,
+        player2: p2Name,
+        winner: playerName(matchWinner),
+        date: new Date().toLocaleDateString("zh-TW"),
+        sets: score.sets,
+      },
+      stats: { [p1Name]: stats.p1, [p2Name]: stats.p2 },
+      points: points.map((pt, i) => ({
+        index: i + 1,
+        server: playerName(pt.server),
+        serve1: pt.serve1,
+        serve2: pt.serve2 ?? "-",
+        serveType: pt.serveType ?? "-",
+        rallyCount: pt.rallyCount,
+        pointWinner: playerName(pt.pointWinner),
+        pointEndReason: pt.pointEndReason,
+        rallyEvents: pt.rallyEvents.map(ev => ({
+          player: playerName(ev.shotBy),
+          shotType: ev.shotType,
+          outcome: ev.outcome,
+          hand: ev.hand ?? "-",
+        })),
+      })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tennis_${p1Name}_vs_${p2Name}_${new Date().toLocaleDateString("zh-TW").replace(/\//g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportCSV = () => {
+    const reasonMap = { ace: "ACE", double_fault: "雙重失誤", winner: "Winner", forced_error: "受迫失誤", unforced_error: "非受迫失誤" };
+    const handMap = { forehand: "正拍", backhand: "反拍" };
+    const rows = [["分數#", "發球員", "第一發球", "第二發球", "發球球種", "來回拍數", "得分球員", "結束原因", "最後球種", "正/反拍"]];
+    points.forEach((pt, i) => {
+      const lastEv = pt.rallyEvents[pt.rallyEvents.length - 1];
+      rows.push([
+        i + 1, playerName(pt.server),
+        pt.serve1 === "in" ? "進" : "失誤",
+        pt.serve2 ? (pt.serve2 === "in" ? "進" : "失誤") : "-",
+        pt.serveType ?? "-", pt.rallyCount,
+        playerName(pt.pointWinner),
+        reasonMap[pt.pointEndReason] ?? pt.pointEndReason,
+        lastEv ? lastEv.shotType : "-",
+        lastEv ? (handMap[lastEv.hand] ?? "-") : "-",
+      ]);
+    });
+    rows.push([]);
+    rows.push(["統計項目", p1Name, p2Name]);
+    [["總得分","points"],["ACE","aces"],["雙重失誤","doubleFaults"],["Winners","winners"],
+     ["受迫失誤","forcedErrors"],["非受迫失誤","unforcedErrors"],["正拍失誤","fhErrors"],["反拍失誤","bhErrors"]
+    ].forEach(([label, key]) => rows.push([label, stats.p1[key], stats.p2[key]]));
+
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tennis_${p1Name}_vs_${p2Name}_${new Date().toLocaleDateString("zh-TW").replace(/\//g, "-")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const finishPoint = useCallback((pt) => {
+    setPoints((prev) => [...prev, pt]);
+    setCurrentPoint(null);
+    setSelectedRallyShot(null);
+    setNextHitter(null);
+    setPendingErrorOutcome(null);
+    setPendingServeType(null);
+    setPendingServeLanding(null);
+    setPendingRallyLanding(null);
+    setPendingShotLanding(null);
+    setPhase("serve1");
+
+    const winner = pt.pointWinner;
+    setScore((prev) => {
+      const newScore = { ...prev, currentGame: { ...prev.currentGame }, currentSet: { ...prev.currentSet }, sets: [...prev.sets] };
+      const { noAd, gamesPerSet, sets: maxSets, thirdSetSuper } = format;
+
+      // 判斷是否在 Super Tiebreak
+      let result;
+      if (superTiebreak) {
+        result = advanceSuperTiebreak({ ...prev.currentGame }, winner);
+      } else if (prev.tiebreak) {
+        result = advanceTiebreak({ ...prev.currentGame }, winner);
+      } else {
+        result = advanceGame({ ...prev.currentGame }, winner, noAd);
+      }
+
+      if (result.won) {
+        if (superTiebreak) {
+          // Super Tiebreak 結束 = 整場比賽結束
+          newScore.sets = [...prev.sets, { p1: prev.currentSet.p1, p2: prev.currentSet.p2, super: true, superScore: { ...result.game } }];
+          newScore.currentGame = { p1: 0, p2: 0 };
+          setSuperTiebreak(false);
+          setMatchOver(true);
+          setMatchWinner(result.won);
+          return newScore;
+        }
+
+        const setResult = advanceSet({ ...prev.currentSet }, result.won, prev.tiebreak, gamesPerSet);
+        newScore.currentGame = result.game;
+
+        if (setResult.won) {
+          const completedSet = { p1: prev.currentSet.p1 + (result.won === "p1" ? 1 : 0), p2: prev.currentSet.p2 + (result.won === "p2" ? 1 : 0) };
+          newScore.sets = [...prev.sets, completedSet];
+          newScore.currentSet = setResult.newSet;
+          newScore.tiebreak = false;
+
+          const setsWon = { p1: 0, p2: 0 };
+          newScore.sets.forEach((s) => { if (s.p1 > s.p2) setsWon.p1++; else setsWon.p2++; });
+          const setsNeeded = maxSets === 1 ? 1 : Math.ceil(maxSets / 2);
+
+          // 檢查是否進入第三盤 Super Tiebreak
+          if (thirdSetSuper && setsWon.p1 === 1 && setsWon.p2 === 1) {
+            setSuperTiebreak(true);
+            newScore.currentGame = { p1: 0, p2: 0 };
+          } else if (setsWon.p1 >= setsNeeded || setsWon.p2 >= setsNeeded) {
+            const mw = setsWon.p1 >= setsNeeded ? "p1" : "p2";
+            setMatchOver(true);
+            setMatchWinner(mw);
+            return newScore;
+          }
+        } else {
+          newScore.currentSet = setResult.newSet;
+          newScore.tiebreak = setResult.tiebreak;
+        }
+
+        setServer((s) => (s === "p1" ? "p2" : "p1"));
+        const nextSnap = { sets: newScore.sets, currentSet: newScore.currentSet, currentGame: newScore.currentGame };
+        setCurrentPoint(createPoint(server === "p1" ? "p2" : "p1", nextSnap));
+      } else {
+        newScore.currentGame = result.game;
+        const nextSnap = { sets: newScore.sets, currentSet: newScore.currentSet, currentGame: newScore.currentGame };
+        setCurrentPoint(createPoint(server, nextSnap));
+      }
+      return newScore;
+    });
+  }, [server, format, superTiebreak]);
+
+  // ── Stats computation ────────────────────────────────────────────────────
+  const stats = (() => {
+    const s = {
+      p1: { points: 0, aces: 0, doubleFaults: 0, winners: 0, forcedErrors: 0, unforcedErrors: 0, fhErrors: 0, bhErrors: 0, serve1In: 0, serve1Total: 0, rally: 0 },
+      p2: { points: 0, aces: 0, doubleFaults: 0, winners: 0, forcedErrors: 0, unforcedErrors: 0, fhErrors: 0, bhErrors: 0, serve1In: 0, serve1Total: 0, rally: 0 },
+    };
+    points.forEach((pt) => {
+      const w = pt.pointWinner;
+      const l = w === "p1" ? "p2" : "p1";
+      s[w].points++;
+      if (pt.pointEndReason === "ace") s[w].aces++;
+      if (pt.pointEndReason === "double_fault") s[l].doubleFaults++;
+      if (pt.serve1 !== null) { s[pt.server].serve1Total++; if (pt.serve1 === "in") s[pt.server].serve1In++; }
+      s[pt.server].rally += pt.rallyCount;
+      pt.rallyEvents.forEach((ev) => {
+        if (ev.outcome === "winner") s[ev.shotBy].winners++;
+        if (ev.outcome === "forced_error") {
+          s[ev.shotBy].forcedErrors++; // shotBy 打出受迫失誤（失分方）
+          if (ev.hand === "forehand") s[ev.shotBy].fhErrors++;
+          if (ev.hand === "backhand") s[ev.shotBy].bhErrors++;
+        }
+        if (ev.outcome === "unforced_error") {
+          s[ev.shotBy].unforcedErrors++;
+          if (ev.hand === "forehand") s[ev.shotBy].fhErrors++;
+          if (ev.hand === "backhand") s[ev.shotBy].bhErrors++;
+        }
+      });
+    });
+    return s;
+  })();
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  if (!matchStarted) {
+    return (
+      <div style={styles.setup}>
+        <div style={styles.setupCard}>
+          <div style={styles.courtIcon}>🎾</div>
+          <h1 style={styles.title}>網球比賽記錄系統</h1>
+          <p style={styles.subtitle}>單打 · 逐球追蹤 · 深度分析</p>
+          <div style={styles.inputRow}>
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>球員 1</label>
+              <input style={styles.input} value={p1Name} onChange={(e) => setP1Name(e.target.value)} placeholder="球員 A" />
+            </div>
+            <div style={styles.vs}>VS</div>
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>球員 2</label>
+              <input style={styles.input} value={p2Name} onChange={(e) => setP2Name(e.target.value)} placeholder="球員 B" />
+            </div>
+          </div>
+          <div style={styles.serverSelect}>
+            <label style={styles.label}>賽制</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.5rem" }}>
+              {MATCH_FORMATS.map((f) => (
+                <button key={f.id}
+                  style={{ ...styles.toggleBtn, ...(format.id === f.id ? styles.toggleBtnActive : {}), textAlign: "left", padding: "0.6rem 1rem" }}
+                  onClick={() => setFormat(f)}>
+                  {format.id === f.id ? "✓ " : ""}{f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={styles.serverSelect}>
+            <label style={styles.label}>先發球員</label>
+            <div style={styles.btnRow}>
+              {["p1", "p2"].map((p) => (
+                <button key={p} style={{ ...styles.toggleBtn, ...(server === p ? styles.toggleBtnActive : {}) }} onClick={() => setServer(p)}>
+                  {playerName(p)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button style={styles.startBtn} onClick={startMatch}>開始比賽</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (matchOver) {
+    return (
+      <div style={styles.setup}>
+        <div style={styles.setupCard}>
+          <div style={styles.courtIcon}>🏆</div>
+          <h1 style={styles.title}>比賽結束！</h1>
+          <p style={{ ...styles.subtitle, color: "#00e5a0", fontSize: "1.4rem" }}>{playerName(matchWinner)} 獲勝</p>
+          <p style={{ ...styles.subtitle, fontSize: "0.8rem", marginBottom: "1rem" }}>{format.label}</p>
+          <div style={styles.setsDisplay}>
+            {score.sets.map((s, i) => (
+              <span key={i} style={styles.setBadge}>第{i + 1}盤 {s.p1}-{s.p2}</span>
+            ))}
+          </div>
+          <button style={styles.startBtn} onClick={() => setShowStats(true)}>查看完整統計</button>
+          <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.8rem" }}>
+            <button style={{ ...styles.exportBtn, borderColor: "#00e5a0", color: "#00e5a0" }} onClick={exportJSON}>⬇ 下載 JSON</button>
+            <button style={{ ...styles.exportBtn, borderColor: "#f5a623", color: "#f5a623" }} onClick={exportCSV}>⬇ 下載 CSV</button>
+          </div>
+          {showStats && <StatsPanel stats={stats} p1Name={p1Name} p2Name={p2Name} points={points} />}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.app}>
+      {/* Header scoreboard */}
+      <div style={styles.scoreboard}>
+        <ScoreColumn name={p1Name} side="p1" score={score} stats={stats.p1} isServer={server === "p1"} />
+        <div style={styles.scoreCenter}>
+          <div style={styles.setsRow}>
+            {score.sets.map((s, i) => <span key={i} style={styles.setNum}>{s.p1}-{s.p2}</span>)}
+          </div>
+          <div style={styles.gameScore}>{superTiebreak ? `Super TB: ${score.currentGame.p1}-${score.currentGame.p2}` : gameScoreLabel(score.currentGame, score.tiebreak, format.noAd)}</div>
+          <div style={styles.setScore}>{score.currentSet.p1} — {score.currentSet.p2}</div>
+        </div>
+        <ScoreColumn name={p2Name} side="p2" score={score} stats={stats.p2} isServer={server === "p2"} align="right" />
+      </div>
+
+      {/* Phase panel */}
+      <div style={styles.phase}>
+        {/* 發球落點選擇 */}
+        {pendingServeLanding && currentPoint && (
+          <PhasePanel title={`${pendingServeLanding.serveType} — 落點？`} color="#00e5a0">
+            <ServeLandingPicker onSelect={handleServeLanding} server={currentPoint.server} totalPoints={points.length} gameScore={score.currentGame} points={points} />
+            <button style={styles.backBtn} onClick={() => {
+              setPendingServeLanding(null);
+              setPendingServeType(currentPoint.serve2 === "in" ? "serve2in" : "serve1in");
+            }}>← 重新選擇</button>
+          </PhasePanel>
+        )}
+
+        {/* 發球球種選擇（進場或ACE後） */}
+        {pendingServeType && !pendingServeLanding && currentPoint && (
+          <PhasePanel
+            title={pendingServeType.includes("ace") ? "⚡ ACE — 發球球種？" : "✓ 發球進場 — 球種？"}
+            color={pendingServeType.startsWith("serve1") ? "#7b9cff" : "#f5a623"}
+          >
+            <div style={styles.btnGrid}>
+              {SERVE_TYPES.map((st) => (
+                <ActionBtn
+                  key={st}
+                  label={st}
+                  color={pendingServeType.startsWith("serve1") ? "#7b9cff" : "#f5a623"}
+                  onClick={() => handleServeTypeChoice(st)}
+                />
+              ))}
+            </div>
+            <button style={styles.backBtn} onClick={() => {
+              setPendingServeType(null);
+              setCurrentPoint((p) => ({ ...p, serve1: null, serve2: null }));
+            }}>← 重新選擇</button>
+          </PhasePanel>
+        )}
+
+        {!pendingServeType && !pendingServeLanding && !pendingRallyLanding && phase === "serve1" && currentPoint && (
+          <PhasePanel title={`${playerName(currentPoint.server)} 第一發球`} color="#7b9cff">
+            <div style={styles.btnGrid}>
+              <ActionBtn label="✓ 第一發球進" color="#7b9cff" onClick={handleServe1In} />
+              <ActionBtn label="⚡ ACE" color="#00e5a0" onClick={handleServe1Ace} />
+              <ActionBtn label="✗ 失誤（第二發）" color="#ff6b6b" onClick={handleServe1Fault} />
+            </div>
+          </PhasePanel>
+        )}
+
+        {!pendingServeType && !pendingServeLanding && !pendingRallyLanding && phase === "serve2" && currentPoint && (
+          <PhasePanel title={`${playerName(currentPoint.server)} 第二發球`} color="#f5a623">
+            <div style={styles.btnGrid}>
+              <ActionBtn label="✓ 進球（繼續）" color="#7b9cff" onClick={handleServe2In} />
+              <ActionBtn label="⚡ ACE" color="#00e5a0" onClick={handleServe2Ace} />
+              <ActionBtn label="✗ Double Fault" color="#ff6b6b" onClick={handleDoubleFault} />
+            </div>
+          </PhasePanel>
+        )}
+
+        {!pendingServeType && !pendingServeLanding && !pendingRallyLanding && phase === "rally" && currentPoint && (
+          <PhasePanel title={`對打中 · 已來回 ${currentPoint.rallyCount} 拍`} color="#00e5a0">
+            {pendingErrorOutcome ? (
+              <>
+                <p style={styles.hint}>
+                  <strong style={{ color: "#ff6b6b" }}>{playerName(pendingErrorOutcome.shotBy)}</strong>
+                  　{pendingErrorOutcome.outcome.id === "unforced_error" ? "非受迫失誤" : "受迫失誤"}
+                </p>
+                <p style={{ ...styles.hint, marginTop: 0 }}>是正拍還是反拍失誤？</p>
+                <div style={styles.btnGrid}>
+                  <ActionBtn label="🎾 正拍" color="#00e5a0" onClick={() => handleHandChoice("forehand")} />
+                  <ActionBtn label="🎾 反拍" color="#f5a623" onClick={() => handleHandChoice("backhand")} />
+                </div>
+                <button style={styles.backBtn} onClick={() => setPendingErrorOutcome(null)}>← 重新選擇</button>
+              </>
+            ) : pendingShotLanding ? (
+              <>
+                <p style={styles.hint}>
+                  <strong style={{ color: "#00e5a0" }}>{playerName(pendingShotLanding.shotBy)}</strong> 的 <strong style={{ color: "#f5a623" }}>{pendingShotLanding.shotType}</strong> — 落點？
+                </p>
+                <RallyLandingPicker onSelect={handleShotLanding} />
+                <button style={styles.backBtn} onClick={() => { setPendingShotLanding(null); }}>← 重新選擇球種</button>
+              </>
+            ) : !selectedRallyShot ? (
+              <>
+                <p style={styles.hint}>
+                  輪到 <strong style={{ color: "#00e5a0" }}>{playerName(nextHitter)}</strong> 擊球，選擇球種
+                </p>
+                <div style={styles.shotBtnsCenter}>
+                  {SHOT_TYPES.map((st) => (
+                    <button key={st} style={styles.shotBtn} onClick={() => startRallyShot(nextHitter, st)}>{st}</button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <p style={styles.hint}>
+                  <strong style={{ color: "#00e5a0" }}>{playerName(selectedRallyShot.shotBy)}</strong> 的 <strong style={{ color: "#f5a623" }}>{selectedRallyShot.shotType}</strong>
+                </p>
+                <p style={{ ...styles.hint, marginTop: 0 }}>結果如何？</p>
+                <div style={styles.btnGrid}>
+                  {OUTCOME_TYPES.map((o) => (
+                    <ActionBtn key={o.id} label={o.label} color={o.color} onClick={() => handleRallyOutcome(o)} />
+                  ))}
+                </div>
+                <button style={styles.backBtn} onClick={() => setSelectedRallyShot(null)}>← 重新選擇</button>
+              </>
+            )}
+          </PhasePanel>
+        )}
+      </div>
+
+      {/* Recent points log */}
+      {/* 分頁導航 */}
+      <div style={styles.tabBar}>
+        {[
+          { id: "record", label: "📋 紀錄" },
+          { id: "stats",  label: "📊 統計" },
+          { id: "replay", label: "🎬 回放" },
+        ].map(t => (
+          <button key={t.id} style={{ ...styles.tabBtn, ...(activeTab === t.id ? styles.tabBtnActive : {}) }}
+            onClick={() => setActiveTab(t.id)}>{t.label}</button>
+        ))}
+      </div>
+
+      <div style={styles.tabContent}>
+        {activeTab === "record" && (
+          <div>
+            <div style={styles.logHeader}>
+              <span style={{ color: "#7b9cff", fontSize: "0.85rem" }}>共 {points.length} 分</span>
+              {points.length > 0 && (
+                <button style={styles.undoBtn} onClick={undoLastPoint}>↩ 撤回上一分</button>
+              )}
+            </div>
+            <div style={styles.pointList}>
+              {[...points].reverse().map((pt, i) => (
+                <PointRow key={pt.id} pt={pt} p1Name={p1Name} p2Name={p2Name} idx={points.length - i} />
+              ))}
+            </div>
+          </div>
+        )}
+        {activeTab === "stats" && (
+          <AnalyticsPanel stats={stats} points={points} p1Name={p1Name} p2Name={p2Name} />
+        )}
+        {activeTab === "replay" && (
+          <ReplayPanel points={points} p1Name={p1Name} p2Name={p2Name} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-components ──────────────────────────────────────────────────────────
+function ScoreColumn({ name, side, score, stats, isServer, align = "left" }) {
+  return (
+    <div style={{ ...styles.scoreCol, textAlign: align }}>
+      <div style={styles.playerName}>
+        {isServer && <span style={styles.serverDot}>●</span>}
+        {name}
+      </div>
+      <div style={styles.pointsWon}>{stats.points}分</div>
+    </div>
+  );
+}
+
+function PhasePanel({ title, color, children }) {
+  return (
+    <div style={{ ...styles.panel, borderColor: color }}>
+      <div style={{ ...styles.panelTitle, color }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function ActionBtn({ label, color, onClick }) {
+  return (
+    <button style={{ ...styles.actionBtn, borderColor: color, color }} onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+
+function PointRow({ pt, p1Name, p2Name, idx }) {
+  const pn = (p) => (p === "p1" ? p1Name : p2Name);
+  const reasonMap = { ace: "ACE", double_fault: "雙重失誤", winner: "Winner", forced_error: "受迫失誤", unforced_error: "非受迫失誤" };
+  return (
+    <div style={styles.pointRow}>
+      <span style={styles.pointIdx}>#{idx}</span>
+      <span style={{ ...styles.pointWinner, color: "#00e5a0" }}>{pn(pt.pointWinner)} 得分</span>
+      <span style={styles.pointReason}>{reasonMap[pt.pointEndReason] || pt.pointEndReason}</span>
+      {pt.rallyCount > 0 && <span style={styles.pointRally}>來回{pt.rallyCount}拍</span>}
+    </div>
+  );
+}
+
+function StatsPanel({ stats, p1Name, p2Name, points }) {
+  const avgRally = points.length ? (points.reduce((a, p) => a + p.rallyCount, 0) / points.length).toFixed(1) : 0;
+  const rows = [
+    ["總得分", stats.p1.points, stats.p2.points],
+    ["ACE", stats.p1.aces, stats.p2.aces],
+    ["雙重失誤", stats.p1.doubleFaults, stats.p2.doubleFaults],
+    ["Winners", stats.p1.winners, stats.p2.winners],
+    ["受迫失誤", stats.p1.forcedErrors, stats.p2.forcedErrors],
+    ["非受迫失誤", stats.p1.unforcedErrors, stats.p2.unforcedErrors],
+    ["　↳ 正拍失誤", stats.p1.fhErrors, stats.p2.fhErrors],
+    ["　↳ 反拍失誤", stats.p1.bhErrors, stats.p2.bhErrors],
+    ["第一發球進場率", stats.p1.serve1Total ? `${Math.round(stats.p1.serve1In / stats.p1.serve1Total * 100)}%` : "-", stats.p2.serve1Total ? `${Math.round(stats.p2.serve1In / stats.p2.serve1Total * 100)}%` : "-"],
+  ];
+  return (
+    <div style={styles.statsPanel}>
+      <div style={styles.statsTitle}>📊 比賽統計</div>
+      <div style={styles.statsAvg}>平均每分來回：{avgRally} 拍</div>
+      <div style={styles.statsHeader}>
+        <span>{p1Name}</span><span>項目</span><span style={{ textAlign: "right" }}>{p2Name}</span>
+      </div>
+      {rows.map(([label, v1, v2]) => (
+        <div key={label} style={styles.statsRow}>
+          <span style={{ color: "#00e5a0", fontWeight: 700 }}>{v1}</span>
+          <span style={styles.statsLabel}>{label}</span>
+          <span style={{ color: "#f5a623", fontWeight: 700, textAlign: "right" }}>{v2}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Analytics Panel ──────────────────────────────────────────────────────────
+function AnalyticsPanel({ stats, points, p1Name, p2Name }) {
+  const [tab, setTab] = useState("shot"); // "shot" | "landing"
+  const pn = (p) => p === "p1" ? p1Name : p2Name;
+
+  // 球種統計
+  const shotStats = {};
+  points.forEach(pt => {
+    pt.rallyEvents.forEach(ev => {
+      if (!shotStats[ev.shotType]) shotStats[ev.shotType] = { winner: 0, forced: 0, unforced: 0, total: 0 };
+      shotStats[ev.shotType].total++;
+      if (ev.outcome === "winner") shotStats[ev.shotType].winner++;
+      if (ev.outcome === "forced_error") shotStats[ev.shotType].forced++;
+      if (ev.outcome === "unforced_error") shotStats[ev.shotType].unforced++;
+    });
+  });
+  const shotList = Object.entries(shotStats).sort((a, b) => b[1].total - a[1].total);
+
+  // 發球落點統計
+  const serveLanding = { Wide: { p1: 0, p2: 0 }, Body: { p1: 0, p2: 0 }, T: { p1: 0, p2: 0 } };
+  points.forEach(pt => {
+    if (pt.serveLanding) {
+      const key = pt.serveLanding;
+      if (serveLanding[key]) serveLanding[key][pt.server]++;
+    }
+  });
+
+  // 回球落點分佈（9宮格計數）
+  const rallyGrid = {};
+  const GRID_KEYS = ["net-L","net-M","net-R","mid-L","mid-M","mid-R","base-L","base-M","base-R"];
+  GRID_KEYS.forEach(k => { rallyGrid[k] = { p1: 0, p2: 0 }; });
+  points.forEach(pt => {
+    pt.rallyEvents.forEach(ev => {
+      if (ev.landing && rallyGrid[ev.landing]) {
+        rallyGrid[ev.landing][ev.shotBy]++;
+      }
+    });
+  });
+  const maxRally = Math.max(1, ...GRID_KEYS.map(k => rallyGrid[k].p1 + rallyGrid[k].p2));
+
+  // 9宮格SVG熱圖
+  const W = 220, H = 200;
+  const lx = 30, rx = W - 10, mx = (lx + rx) / 2;
+  const netY = 18, serveLineY = 95, baseLineY = H - 15;
+  const courtW = rx - lx, netZH = serveLineY - netY, midZH = 40, baseZH = baseLineY - serveLineY - midZH;
+  const colW = courtW / 3;
+  const rowDefs = [
+    { y: netY,               h: netZH,  label: "網前" },
+    { y: serveLineY,         h: midZH,  label: "中場" },
+    { y: serveLineY + midZH, h: baseZH, label: "底線" },
+  ];
+  const gridZones = [
+    { id:"net-L",  row:0, col:0 }, { id:"net-M",  row:0, col:1 }, { id:"net-R",  row:0, col:2 },
+    { id:"mid-L",  row:1, col:0 }, { id:"mid-M",  row:1, col:1 }, { id:"mid-R",  row:1, col:2 },
+    { id:"base-L", row:2, col:0 }, { id:"base-M", row:2, col:1 }, { id:"base-R", row:2, col:2 },
+  ];
+  const [heatPlayer, setHeatPlayer] = useState("both");
+  const [serveTypeFilter, setServeTypeFilter] = useState("all");
+  const [rallyTypeFilter, setRallyTypeFilter] = useState("all");
+  const [landingSubTab, setLandingSubTab] = useState("serve");
+
+  // 依球種篩選發球落點
+  const filteredServeLanding = { Wide: { p1: 0, p2: 0 }, Body: { p1: 0, p2: 0 }, T: { p1: 0, p2: 0 } };
+  points.forEach(pt => {
+    if (!pt.serveLanding) return;
+    if (serveTypeFilter !== "all" && pt.serveType !== serveTypeFilter) return;
+    const key = pt.serveLanding;
+    if (filteredServeLanding[key]) filteredServeLanding[key][pt.server]++;
+  });
+
+  // 依球種篩選回球落點
+  const filteredRallyGrid = {};
+  GRID_KEYS.forEach(k => { filteredRallyGrid[k] = { p1: 0, p2: 0 }; });
+  points.forEach(pt => {
+    pt.rallyEvents.forEach(ev => {
+      if (!ev.landing || !filteredRallyGrid[ev.landing]) return;
+      if (rallyTypeFilter !== "all" && ev.shotType !== rallyTypeFilter) return;
+      filteredRallyGrid[ev.landing][ev.shotBy]++;
+    });
+  });
+  const maxFiltered = Math.max(1, ...GRID_KEYS.map(k => filteredRallyGrid[k].p1 + filteredRallyGrid[k].p2));
+  const usedShotTypes = [...new Set(points.flatMap(pt => pt.rallyEvents.map(ev => ev.shotType)))];
+
+  return (
+    <div style={{ paddingBottom: "1rem" }}>
+      <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.8rem" }}>
+        {[["shot","🎾 球種統計"],["landing","📍 落點分佈"]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ flex:1, padding:"0.45rem", background: tab===id ? "#7b9cff" : "rgba(255,255,255,0.04)", border:`1px solid ${tab===id ? "#7b9cff" : "rgba(255,255,255,0.1)"}`, borderRadius:"8px", color: tab===id ? "#0a0f1e" : "#7b9cff", fontWeight:700, cursor:"pointer", fontSize:"0.82rem", fontFamily:"inherit" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "shot" && (
+        <div>
+          {shotList.length === 0 && <p style={{ color:"#444d6e", textAlign:"center", fontSize:"0.85rem" }}>尚無資料</p>}
+          {(() => {
+            const totalShots = shotList.reduce((a, [, s]) => a + s.total, 0);
+            return shotList.map(([shot, s]) => (
+            <div key={shot} style={{ marginBottom:"0.6rem", background:"rgba(255,255,255,0.03)", borderRadius:"8px", padding:"0.6rem 0.8rem" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"0.3rem" }}>
+                <span style={{ color:"#e8eaf6", fontSize:"0.85rem", fontWeight:700 }}>{shot}</span>
+                <span style={{ color:"#444d6e", fontSize:"0.78rem" }}>{s.total} 次 ({totalShots > 0 ? Math.round(s.total/totalShots*100) : 0}%)</span>
+              </div>
+              <div style={{ display:"flex", gap:"0.4rem" }}>
+                {[
+                  ["W","#00e5a0", s.winner, s.total > 0 ? Math.round(s.winner/s.total*100) : 0],
+                  ["受","#f5a623", s.forced, s.total > 0 ? Math.round(s.forced/s.total*100) : 0],
+                  ["非","#ff6b6b", s.unforced, s.total > 0 ? Math.round(s.unforced/s.total*100) : 0],
+                ].map(([label, color, val, p]) => (
+                  <span key={label} style={{ background:`${color}22`, border:`1px solid ${color}55`, borderRadius:"4px", padding:"0.1rem 0.5rem", color, fontSize:"0.75rem" }}>
+                    {label} {val} <span style={{ opacity:0.7 }}>({p}%)</span>
+                  </span>
+                ))}
+              </div>
+              <div style={{ marginTop:"0.4rem", height:"4px", borderRadius:"2px", background:"rgba(255,255,255,0.06)", overflow:"hidden", display:"flex" }}>
+                <div style={{ width:`${s.winner/s.total*100}%`, background:"#00e5a0" }}/>
+                <div style={{ width:`${s.forced/s.total*100}%`, background:"#f5a623" }}/>
+                <div style={{ width:`${s.unforced/s.total*100}%`, background:"#ff6b6b" }}/>
+              </div>
+            </div>
+          ));
+          })()}
+        </div>
+      )}
+
+      {tab === "landing" && (
+        <div>
+          {/* 發球/擊球切換 */}
+          <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.8rem" }}>
+            {[["serve","🎾 發球落點"],["rally","🎾 擊球落點"]].map(([id, label]) => (
+              <button key={id} onClick={() => setLandingSubTab(id)}
+                style={{ flex:1, padding:"0.4rem", background: landingSubTab===id ? "#00e5a0" : "rgba(255,255,255,0.04)", border:`1px solid ${landingSubTab===id ? "#00e5a0" : "rgba(255,255,255,0.1)"}`, borderRadius:"8px", color: landingSubTab===id ? "#0a0f1e" : "#00e5a0", fontWeight:700, cursor:"pointer", fontSize:"0.8rem", fontFamily:"inherit" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {landingSubTab === "serve" && (
+            <div>
+              <div style={{ marginBottom:"0.6rem" }}>
+                <div style={{ color:"#aab8d0", fontSize:"0.75rem", marginBottom:"0.4rem" }}>篩選發球種類</div>
+                <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap" }}>
+                  {[["all","全部"], ...SERVE_TYPES.map(t => [t, t])].map(([v, label]) => (
+                    <button key={v} onClick={() => setServeTypeFilter(v)}
+                      style={{ padding:"0.3rem 0.6rem", background: serveTypeFilter===v ? "#7b9cff" : "rgba(255,255,255,0.04)", border:`1px solid ${serveTypeFilter===v ? "#7b9cff" : "rgba(255,255,255,0.15)"}`, borderRadius:"6px", color: serveTypeFilter===v ? "#0a0f1e" : "#aab8d0", fontSize:"0.75rem", cursor:"pointer", fontFamily:"inherit", fontWeight: serveTypeFilter===v ? 700 : 400 }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {(() => {
+                // 依球員、側別、落點統計
+                const data = {
+                  p1: { deuce: {Wide:0,Body:0,T:0,total:0}, ad: {Wide:0,Body:0,T:0,total:0} },
+                  p2: { deuce: {Wide:0,Body:0,T:0,total:0}, ad: {Wide:0,Body:0,T:0,total:0} },
+                };
+                points.forEach((pt, idx) => {
+                  if (!pt.serveLanding) return;
+                  if (serveTypeFilter !== "all" && pt.serveType !== serveTypeFilter) return;
+                  const side = pt.serveSide ?? (idx % 2 === 0 ? "deuce" : "ad");
+                  const k = pt.serveLanding;
+                  if (data[pt.server] && data[pt.server][side][k] !== undefined) {
+                    data[pt.server][side][k]++;
+                    data[pt.server][side].total++;
+                  }
+                });
+
+                const W = 140, H = 190;
+                const lx = 10, rx = W - 10, mx = W / 2;
+                const netY = 30, serveLineY = 105, baseLineY = H - 22;
+
+                const renderMiniCourt = (playerKey, side, isDeuceSide) => {
+                  const d = data[playerKey][side];
+                  const boxLx = isDeuceSide ? mx : lx;
+                  const boxRx = isDeuceSide ? rx : mx;
+                  const boxW = boxRx - boxLx;
+                  const zoneW = boxW / 3;
+                  const zoneY = serveLineY - 38, zoneH = 38;
+
+                  const zones = isDeuceSide ? [
+                    { id:"T",    label:"內", color:"rgba(195,175,15,0.82)", x: boxLx },
+                    { id:"Body", label:"近", color:"rgba(35,155,65,0.82)",  x: boxLx + zoneW },
+                    { id:"Wide", label:"外", color:"rgba(210,45,45,0.82)",  x: boxLx + zoneW*2 },
+                  ] : [
+                    { id:"Wide", label:"外", color:"rgba(210,45,45,0.82)",  x: boxLx },
+                    { id:"Body", label:"近", color:"rgba(35,155,65,0.82)",  x: boxLx + zoneW },
+                    { id:"T",    label:"內", color:"rgba(195,175,15,0.82)", x: boxLx + zoneW*2 },
+                  ];
+
+                  return (
+                    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", borderRadius:"8px", background:"#1a6b3a", display:"block" }}>
+                      <rect x={lx} y={netY} width={rx-lx} height={baseLineY-netY} fill="#2980b9"/>
+                      {zones.map(z => {
+                        const cnt = d[z.id] ?? 0;
+                        const pct = d.total > 0 ? Math.round(cnt/d.total*100) : 0;
+                        return (
+                          <g key={z.id}>
+                            <rect x={z.x} y={zoneY} width={zoneW} height={zoneH} fill={z.color}/>
+                            <text x={z.x+zoneW/2} y={zoneY+zoneH*0.3} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="7.5" fontWeight="bold">{z.label}</text>
+                            <text x={z.x+zoneW/2} y={zoneY+zoneH*0.62} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="8.5" fontWeight="bold">{pct}%</text>
+                            <text x={z.x+zoneW/2} y={zoneY+zoneH*0.88} textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.75)" fontSize="6.5">{cnt}次</text>
+                          </g>
+                        );
+                      })}
+                      {[1,2].map(i => <line key={i} x1={boxLx+zoneW*i} y1={zoneY} x2={boxLx+zoneW*i} y2={serveLineY} stroke="rgba(255,255,255,0.5)" strokeWidth="1"/>)}
+                      <line x1={lx} y1={baseLineY} x2={rx} y2={baseLineY} stroke="white" strokeWidth="1.5"/>
+                      <line x1={lx} y1={serveLineY} x2={rx} y2={serveLineY} stroke="white" strokeWidth="1.2"/>
+                      <line x1={lx} y1={netY} x2={rx} y2={netY} stroke="white" strokeWidth="2.5"/>
+                      <line x1={lx} y1={netY} x2={lx} y2={baseLineY} stroke="white" strokeWidth="1.5"/>
+                      <line x1={rx} y1={netY} x2={rx} y2={baseLineY} stroke="white" strokeWidth="1.5"/>
+                      <line x1={mx} y1={netY} x2={mx} y2={serveLineY} stroke="white" strokeWidth="1.2"/>
+                      <text x={mx} y={netY-4} textAnchor="middle" fill="white" fontSize="7">網</text>
+                      <text x={(lx+mx)/2} y={serveLineY+11} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="7">{isDeuceSide ? "Ad" : "Deuce"}</text>
+                      <text x={(mx+rx)/2} y={serveLineY+11} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="7">{isDeuceSide ? "Deuce" : "Ad"}</text>
+                      {/* 側別標示 */}
+                      <rect x={lx} y={baseLineY+3} width={rx-lx} height={14} fill={isDeuceSide ? "rgba(123,156,255,0.25)" : "rgba(245,166,35,0.25)"} rx="2"/>
+                      <text x={(lx+rx)/2} y={baseLineY+11} textAnchor="middle" dominantBaseline="middle" fill={isDeuceSide ? "#7b9cff" : "#f5a623"} fontSize="7.5" fontWeight="bold">{isDeuceSide ? "Deuce 側" : "Ad 側"} ({d.total}次)</text>
+                    </svg>
+                  );
+                };
+
+                return (
+                  <div>
+                    {[["p1", p1Name, "#00e5a0"], ["p2", p2Name, "#f5a623"]].map(([pk, pname, pcolor]) => (
+                      <div key={pk} style={{ marginBottom:"0.8rem" }}>
+                        <div style={{ color: pcolor, fontSize:"0.82rem", fontWeight:700, marginBottom:"0.4rem" }}>
+                          {pname} — 發球落點
+                        </div>
+                        <div style={{ display:"flex", gap:"0.4rem" }}>
+                          <div style={{ flex:1 }}>{renderMiniCourt(pk, "deuce", true)}</div>
+                          <div style={{ flex:1 }}>{renderMiniCourt(pk, "ad", false)}</div>
+                        </div>
+                      </div>
+                    ))}
+                    {/* 圖例 */}
+                    <div style={{ display:"flex", gap:"0.6rem", justifyContent:"center", marginTop:"0.3rem" }}>
+                      {[["外角","#e03333"],["近身","#28a046"],["內角","#c8b820"]].map(([label,color]) => (
+                        <span key={label} style={{ fontSize:"0.72rem", color, display:"flex", alignItems:"center", gap:"0.2rem" }}>
+                          <span style={{ width:"8px", height:"8px", borderRadius:"2px", background:color, display:"inline-block" }}/>
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {landingSubTab === "rally" && (
+            <div>
+              <div style={{ display:"flex", justifyContent:"flex-end", gap:"0.3rem", marginBottom:"0.5rem" }}>
+                {[["both","雙方"],["p1",p1Name],["p2",p2Name]].map(([v, label]) => (
+                  <button key={v} onClick={() => setHeatPlayer(v)}
+                    style={{ padding:"0.2rem 0.5rem", background: heatPlayer===v ? "#7b9cff" : "transparent", border:"1px solid rgba(123,156,255,0.3)", borderRadius:"4px", color: heatPlayer===v ? "#0a0f1e" : "#7b9cff", fontSize:"0.7rem", cursor:"pointer", fontFamily:"inherit" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginBottom:"0.6rem" }}>
+                <div style={{ color:"#aab8d0", fontSize:"0.75rem", marginBottom:"0.4rem" }}>篩選擊球種類</div>
+                <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap" }}>
+                  {[["all","全部"], ...usedShotTypes.map(t => [t, t])].map(([v, label]) => (
+                    <button key={v} onClick={() => setRallyTypeFilter(v)}
+                      style={{ padding:"0.3rem 0.6rem", background: rallyTypeFilter===v ? "#00e5a0" : "rgba(255,255,255,0.04)", border:`1px solid ${rallyTypeFilter===v ? "#00e5a0" : "rgba(255,255,255,0.15)"}`, borderRadius:"6px", color: rallyTypeFilter===v ? "#0a0f1e" : "#aab8d0", fontSize:"0.72rem", cursor:"pointer", fontFamily:"inherit", fontWeight: rallyTypeFilter===v ? 700 : 400 }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", borderRadius:"10px", background:"#1a6b3a", display:"block" }}>
+                <rect x={lx} y={netY} width={courtW} height={baseLineY-netY} fill="#2980b9"/>
+                {gridZones.map(z => {
+                  const row = rowDefs[z.row];
+                  const x = lx + z.col * colW, y = row.y, w = colW, h = row.h;
+                  const count = heatPlayer === "both"
+                    ? filteredRallyGrid[z.id].p1 + filteredRallyGrid[z.id].p2
+                    : filteredRallyGrid[z.id][heatPlayer];
+                  const intensity = count / maxFiltered;
+                  const alpha = count > 0 ? 0.15 + intensity * 0.75 : 0.05;
+                  return (
+                    <g key={z.id}>
+                      <rect x={x} y={y} width={w} height={h} fill={`rgba(255,80,80,${alpha})`}/>
+                      <text x={x+w/2} y={y+h/2} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="11" fontWeight="bold">{count || ""}</text>
+                    </g>
+                  );
+                })}
+                <line x1={lx} y1={baseLineY} x2={rx} y2={baseLineY} stroke="white" strokeWidth="2"/>
+                <line x1={lx} y1={serveLineY} x2={rx} y2={serveLineY} stroke="white" strokeWidth="1.5"/>
+                <line x1={lx} y1={netY} x2={rx} y2={netY} stroke="white" strokeWidth="3"/>
+                <line x1={lx} y1={netY} x2={lx} y2={baseLineY} stroke="white" strokeWidth="2"/>
+                <line x1={rx} y1={netY} x2={rx} y2={baseLineY} stroke="white" strokeWidth="2"/>
+                <line x1={mx} y1={netY} x2={mx} y2={serveLineY} stroke="white" strokeWidth="1.5"/>
+                {[1,2].map(i => <line key={i} x1={lx+colW*i} y1={netY} x2={lx+colW*i} y2={baseLineY} stroke="rgba(255,255,255,0.3)" strokeWidth="1" strokeDasharray="3,3"/>)}
+                <line x1={lx} y1={serveLineY+midZH} x2={rx} y2={serveLineY+midZH} stroke="rgba(255,255,255,0.3)" strokeWidth="1" strokeDasharray="3,3"/>
+                {rowDefs.map((r,i) => <text key={i} x={lx-3} y={r.y+r.h/2} textAnchor="end" dominantBaseline="middle" fill="white" fontSize="7" opacity="0.8">{r.label}</text>)}
+                <text x={mx} y={netY-4} textAnchor="middle" fill="white" fontSize="8">網</text>
+              </svg>
+              <div style={{ display:"flex", alignItems:"center", gap:"0.4rem", marginTop:"0.4rem" }}>
+                <span style={{ fontSize:"0.7rem", color:"#444d6e" }}>少</span>
+                <div style={{ flex:1, height:"6px", borderRadius:"3px", background:"linear-gradient(to right, rgba(255,80,80,0.15), rgba(255,80,80,0.85))" }}/>
+                <span style={{ fontSize:"0.7rem", color:"#444d6e" }}>多</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── Replay Panel ──────────────────────────────────────────────────────────────
+function ReplayPanel({ points, p1Name, p2Name }) {
+  const [selected, setSelected] = useState(null);
+  const pn = (p) => p === "p1" ? p1Name : p2Name;
+  const reasonMap = { ace:"ACE", double_fault:"雙重失誤", winner:"Winner", forced_error:"受迫失誤", unforced_error:"非受迫失誤" };
+  const handMap = { forehand:"正拍", backhand:"反拍" };
+  const landingMap = { "net-L":"網前左","net-M":"網前中","net-R":"網前右","mid-L":"中場左","mid-M":"中場中","mid-R":"中場右","base-L":"底線左","base-M":"底線中","base-R":"底線右" };
+  const serveMap = { Wide:"外角", Body:"近身", T:"內角" };
+  const SCORE_SEQ = ["0", "15", "30", "40"];
+
+  const gameScoreStr = (g, tiebreak) => {
+    if (!g) return "0-0";
+    if (tiebreak) return `${g.p1}-${g.p2}`;
+    const s1 = SCORE_SEQ[g.p1] ?? "AD";
+    const s2 = SCORE_SEQ[g.p2] ?? "AD";
+    if (g.p1 >= 3 && g.p2 >= 3) {
+      if (g.p1 === g.p2) return "Deuce";
+      return g.p1 > g.p2 ? "Ad A" : "Ad B";
+    }
+    return `${s1}-${s2}`;
+  };
+
+  const setScoreStr = (sets, currentSet) => {
+    const parts = [...(sets ?? []).map(s => `${s.p1}-${s.p2}`), `${currentSet?.p1 ?? 0}-${currentSet?.p2 ?? 0}`];
+    return parts.join("  ");
+  };
+
+  return (
+    <div style={{ paddingBottom: "1rem" }}>
+      {points.length === 0 && <p style={{ color:"#444d6e", textAlign:"center", fontSize:"0.85rem", marginTop:"1rem" }}>尚無紀錄</p>}
+      {[...points].reverse().map((pt, ri) => {
+        const idx = points.length - ri;
+        const isOpen = selected === pt.id;
+        const snap = pt.scoreSnapshot;
+        const gameStr = gameScoreStr(snap?.currentGame, false);
+        const setStr = setScoreStr(snap?.sets, snap?.currentSet);
+        return (
+          <div key={pt.id} style={{ marginBottom:"0.5rem", background:"rgba(255,255,255,0.03)", borderRadius:"10px", border:"1px solid rgba(255,255,255,0.07)", overflow:"hidden" }}>
+            {/* 標題列 */}
+            <div onClick={() => setSelected(isOpen ? null : pt.id)}
+              style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.6rem 0.8rem", cursor:"pointer" }}>
+              {/* 比分區塊 */}
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", minWidth:"52px", background:"rgba(123,156,255,0.08)", borderRadius:"6px", padding:"0.2rem 0.4rem" }}>
+                <span style={{ color:"#7b9cff", fontSize:"0.78rem", fontWeight:900, lineHeight:1.2 }}>{gameStr}</span>
+                <span style={{ color:"#444d6e", fontSize:"0.65rem", lineHeight:1.1 }}>{setStr}</span>
+              </div>
+              <span style={{ flex:1, color:"#00e5a0", fontWeight:700, fontSize:"0.85rem" }}>{pn(pt.pointWinner)} 得分</span>
+              <span style={{ color:"#aaa", fontSize:"0.78rem" }}>{reasonMap[pt.pointEndReason]}</span>
+              {pt.rallyCount > 0 && <span style={{ color:"#f5a623", fontSize:"0.72rem", background:"rgba(245,166,35,0.1)", borderRadius:"4px", padding:"0.1rem 0.4rem" }}>來回{pt.rallyCount}拍</span>}
+              <span style={{ color:"#444d6e", fontSize:"0.8rem" }}>{isOpen ? "▲" : "▼"}</span>
+            </div>
+
+            {/* 展開詳情 */}
+            {isOpen && (
+              <div style={{ padding:"0 0.8rem 0.8rem", borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+                {/* 發球 */}
+                <div style={{ marginTop:"0.6rem" }}>
+                  <div style={{ color:"#7b9cff", fontSize:"0.75rem", marginBottom:"0.3rem" }}>🎾 發球</div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:"0.3rem" }}>
+                    <Tag label={`發球方：${pn(pt.server)}`} color="#7b9cff"/>
+                    <Tag label={pt.serve1 === "in" ? "第一發進" : "第一發失誤"} color={pt.serve1==="in" ? "#00e5a0" : "#ff6b6b"}/>
+                    {pt.serve1 === "fault" && pt.serve2 && <Tag label={pt.serve2==="in" ? "第二發進" : "Double Fault"} color={pt.serve2==="in" ? "#00e5a0" : "#ff6b6b"}/>}
+                    {pt.serveType && <Tag label={pt.serveType} color="#f5a623"/>}
+                    {pt.serveLanding && <Tag label={`落點：${serveMap[pt.serveLanding] ?? pt.serveLanding}`} color="#f5a623"/>}
+                  </div>
+                </div>
+
+                {/* 對打過程 */}
+                {pt.rallyEvents.length > 0 && (
+                  <div style={{ marginTop:"0.6rem" }}>
+                    <div style={{ color:"#7b9cff", fontSize:"0.75rem", marginBottom:"0.3rem" }}>🏓 對打過程</div>
+                    {pt.rallyEvents.map((ev, i) => {
+                      const outcomeColor = { winner:"#00e5a0", forced_error:"#f5a623", unforced_error:"#ff6b6b", continue:"#7b9cff" }[ev.outcome] ?? "#aaa";
+                      return (
+                        <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:"0.4rem", marginBottom:"0.4rem", paddingLeft:"0.4rem", borderLeft:`2px solid ${outcomeColor}` }}>
+                          <div>
+                            <span style={{ color:"#e8eaf6", fontSize:"0.8rem", fontWeight:700 }}>{pn(ev.shotBy)}</span>
+                            <span style={{ color:"#aaa", fontSize:"0.78rem" }}> · {ev.shotType}</span>
+                            {ev.landing && <span style={{ color:"#7b9cff", fontSize:"0.75rem" }}> → {landingMap[ev.landing] ?? ev.landing}</span>}
+                            <div style={{ display:"flex", gap:"0.3rem", marginTop:"0.2rem", flexWrap:"wrap" }}>
+                              <Tag label={ev.outcome === "continue" ? "繼續對打" : (reasonMap[ev.outcome] ?? ev.outcome)} color={outcomeColor} small/>
+                              {ev.hand && <Tag label={handMap[ev.hand] ?? ev.hand} color="#f5a623" small/>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Tag({ label, color, small }) {
+  return (
+    <span style={{ background:`${color}22`, border:`1px solid ${color}55`, borderRadius:"4px", padding: small ? "0.05rem 0.35rem" : "0.15rem 0.5rem", color, fontSize: small ? "0.7rem" : "0.75rem", whiteSpace:"nowrap" }}>
+      {label}
+    </span>
+  );
+}
+
+// ── Court Landing Pickers ────────────────────────────────────────────────────
+
+function ServeLandingPicker({ onSelect, server, totalPoints, gameScore, points }) {
+  const [selected, setSelected] = useState(null);
+
+  const gamePts = (gameScore?.p1 ?? 0) + (gameScore?.p2 ?? 0);
+  const isDeuceSide = gamePts % 2 === 0;
+  const sideLabel = isDeuceSide ? "Deuce 側" : "Ad 側";
+
+  const W = 220, H = 280;
+  const lx = 18, rx = W - 18, mx = W / 2;
+  const netY = 50, serveLineY = 158, baseLineY = H - 26;
+
+  const boxLx = isDeuceSide ? mx : lx;
+  const boxRx = isDeuceSide ? rx : mx;
+  const boxW = boxRx - boxLx;
+
+  const serverX = isDeuceSide
+    ? (server === "p1" ? mx + 35 : mx - 35)
+    : (server === "p1" ? mx - 35 : mx + 35);
+
+  // 計算各落點百分比（從已記錄的points中統計）
+  const landingCounts = { Wide: 0, Body: 0, T: 0 };
+  let landingTotal = 0;
+  if (points) {
+    points.forEach(pt => {
+      if (pt.server === server && pt.serveLanding) {
+        landingCounts[pt.serveLanding] = (landingCounts[pt.serveLanding] || 0) + 1;
+        landingTotal++;
+      }
+    });
+  }
+  const pct = (key) => landingTotal > 0 ? Math.round(landingCounts[key] / landingTotal * 100) : null;
+
+  // 三個落點區域（填滿發球格的1/3寬度）
+  const zoneW = boxW / 3;
+  const zones = isDeuceSide ? [
+    { id: "T",    label: "內角", color: "rgba(195,175,15,0.7)",  hColor: "rgba(240,220,30,0.9)",  stroke: "#ddcc22", x: boxLx },
+    { id: "Body", label: "近身", color: "rgba(35,155,65,0.7)",   hColor: "rgba(50,200,80,0.9)",   stroke: "#44ee66", x: boxLx + zoneW },
+    { id: "Wide", label: "外角", color: "rgba(210,45,45,0.7)",   hColor: "rgba(240,70,70,0.9)",   stroke: "#ff5555", x: boxLx + zoneW * 2 },
+  ] : [
+    { id: "Wide", label: "外角", color: "rgba(210,45,45,0.7)",   hColor: "rgba(240,70,70,0.9)",   stroke: "#ff5555", x: boxLx },
+    { id: "Body", label: "近身", color: "rgba(35,155,65,0.7)",   hColor: "rgba(50,200,80,0.9)",   stroke: "#44ee66", x: boxLx + zoneW },
+    { id: "T",    label: "內角", color: "rgba(195,175,15,0.7)",  hColor: "rgba(240,220,30,0.9)",  stroke: "#ddcc22", x: boxLx + zoneW * 2 },
+  ];
+
+  const zoneY = serveLineY - 52;
+  const zoneH = 52;
+  const handleClick = (id) => { setSelected(id); setTimeout(() => onSelect(id), 180); };
+
+  return (
+    <div>
+      <p style={{ fontSize: "0.78rem", textAlign: "center", margin: "0 0 0.4rem" }}>
+        <span style={{ color: isDeuceSide ? "#7b9cff" : "#f5a623", fontWeight: 700 }}>{sideLabel}</span>
+        <span style={{ color: "#aab8d0" }}>　點擊選擇發球落點</span>
+      </p>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", borderRadius: "10px", background: "#1a6b3a", display: "block" }}>
+        {/* 場地底色 */}
+        <rect x={lx} y={netY} width={rx - lx} height={baseLineY - netY} fill="#2980b9"/>
+
+        {/* 落點區域（填滿發球格下半段） */}
+        {zones.map((z) => (
+          <g key={z.id} onClick={() => handleClick(z.id)} style={{ cursor: "pointer" }}>
+            <rect x={z.x} y={zoneY} width={zoneW} height={zoneH}
+              fill={selected === z.id ? z.hColor : z.color}
+              stroke={selected === z.id ? "white" : z.stroke}
+              strokeWidth={selected === z.id ? 2 : 1}
+            />
+            <text x={z.x + zoneW/2} y={zoneY + zoneH * 0.38} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="9" fontWeight="bold">{z.label}</text>
+            {pct(z.id) !== null && (
+              <text x={z.x + zoneW/2} y={zoneY + zoneH * 0.72} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="8.5" opacity="0.9">{pct(z.id)}%</text>
+            )}
+          </g>
+        ))}
+
+        {/* 場地線 */}
+        <line x1={lx} y1={baseLineY}  x2={rx} y2={baseLineY}  stroke="white" strokeWidth="2.5"/>
+        <line x1={lx} y1={serveLineY} x2={rx} y2={serveLineY} stroke="white" strokeWidth="1.5"/>
+        <line x1={lx} y1={netY}       x2={rx} y2={netY}       stroke="white" strokeWidth="3.5"/>
+        <line x1={lx} y1={netY}       x2={lx} y2={baseLineY}  stroke="white" strokeWidth="2"/>
+        <line x1={rx} y1={netY}       x2={rx} y2={baseLineY}  stroke="white" strokeWidth="2"/>
+        <line x1={mx} y1={netY}       x2={mx} y2={serveLineY} stroke="white" strokeWidth="1.5"/>
+
+        {/* 區域分隔線（在落點區上方） */}
+        {[1,2].map(i => (
+          <line key={i} x1={boxLx + zoneW*i} y1={zoneY} x2={boxLx + zoneW*i} y2={serveLineY} stroke="rgba(255,255,255,0.5)" strokeWidth="1"/>
+        ))}
+
+        <text x={mx} y={netY - 5} textAnchor="middle" fill="white" fontSize="9" opacity="0.9">網</text>
+        <text x={(lx+mx)/2} y={serveLineY + 14} textAnchor="middle" fill="rgba(255,255,255,0.35)" fontSize="8.5">{isDeuceSide ? "Ad" : "Deuce"}</text>
+        <text x={(mx+rx)/2} y={serveLineY + 14} textAnchor="middle" fill="rgba(255,255,255,0.35)" fontSize="8.5">{isDeuceSide ? "Deuce" : "Ad"}</text>
+
+        <circle cx={serverX} cy={baseLineY + 17} r="9" fill="#f5a623" opacity="0.95"/>
+        <text x={serverX} y={baseLineY + 21} textAnchor="middle" fill="#0a0f1e" fontSize="7.5" fontWeight="bold">發</text>
+      </svg>
+
+      {/* 文字備用按鈕 */}
+      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.6rem" }}>
+        {[
+          { id: "Wide", label: "🔴 外角", color: "#e03333" },
+          { id: "Body", label: "🟢 近身", color: "#28a046" },
+          { id: "T",    label: "🟡 內角", color: "#c8b820" },
+        ].map((z) => (
+          <button key={z.id}
+            style={{ flex: 1, padding: "0.5rem", background: selected === z.id ? `${z.color}33` : "rgba(255,255,255,0.04)", border: `1.5px solid ${z.color}`, borderRadius: "8px", color: z.color, cursor: "pointer", fontSize: "0.82rem", fontWeight: 700, fontFamily: "inherit" }}
+            onClick={() => handleClick(z.id)}>
+            {z.label}{pct(z.id) !== null ? ` ${pct(z.id)}%` : ""}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RallyLandingPicker({ onSelect, hitter, p1Name, p2Name }) {
+  const [selected, setSelected] = useState(null);
+
+  // SVG 尺寸（縱向球場，擊球方在下，對手在上）
+  const W = 220, H = 280;
+  const lx = 18, rx = W - 18, mx = W / 2;
+  const netY = 50, serveLineY = 140, baseLineY = H - 26;
+
+  const courtH = baseLineY - netY;       // 整個球場高度
+  const netZoneH  = serveLineY - netY;   // 網前區（網到發球線）
+  const midZoneH  = (courtH - netZoneH) * 0.45;  // 中場區
+  const baseZoneH = (courtH - netZoneH) * 0.55;  // 底線區
+
+  const netZoneY  = netY;
+  const midZoneY  = serveLineY;
+  const baseZoneY = serveLineY + midZoneH;
+
+  const courtW = rx - lx;
+  const colW = courtW / 3;
+
+  // 9個區塊定義
+  const zones = [
+    { id: "net-L",  label: "左", x: lx,          y: netZoneY,  w: colW, h: netZoneH,  fill: "rgba(123,156,255,0.18)" },
+    { id: "net-M",  label: "中", x: lx + colW,   y: netZoneY,  w: colW, h: netZoneH,  fill: "rgba(123,156,255,0.10)" },
+    { id: "net-R",  label: "右", x: lx + colW*2, y: netZoneY,  w: colW, h: netZoneH,  fill: "rgba(123,156,255,0.18)" },
+    { id: "mid-L",  label: "左", x: lx,          y: midZoneY,  w: colW, h: midZoneH,  fill: "rgba(0,229,160,0.12)" },
+    { id: "mid-M",  label: "中", x: lx + colW,   y: midZoneY,  w: colW, h: midZoneH,  fill: "rgba(0,229,160,0.06)" },
+    { id: "mid-R",  label: "右", x: lx + colW*2, y: midZoneY,  w: colW, h: midZoneH,  fill: "rgba(0,229,160,0.12)" },
+    { id: "base-L", label: "左", x: lx,          y: baseZoneY, w: colW, h: baseZoneH, fill: "rgba(245,166,35,0.12)" },
+    { id: "base-M", label: "中", x: lx + colW,   y: baseZoneY, w: colW, h: baseZoneH, fill: "rgba(245,166,35,0.06)" },
+    { id: "base-R", label: "右", x: lx + colW*2, y: baseZoneY, w: colW, h: baseZoneH, fill: "rgba(245,166,35,0.12)" },
+  ];
+
+  const handleClick = (id) => {
+    setSelected(id);
+    setTimeout(() => onSelect(id), 180);
+  };
+
+  return (
+    <div>
+      <p style={{ color: "#aab8d0", fontSize: "0.78rem", textAlign: "center", margin: "0 0 0.4rem" }}>
+        點擊選擇落點（對手場地）
+      </p>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", borderRadius: "10px", background: "#1a6b3a", display: "block" }}>
+        {/* 場地底色 */}
+        <rect x={lx} y={netY} width={courtW} height={courtH} fill="#2980b9"/>
+
+        {/* 九宮格區塊 */}
+        {zones.map((z) => (
+          <rect key={z.id} x={z.x} y={z.y} width={z.w} height={z.h}
+            fill={selected === z.id ? "rgba(0,229,160,0.45)" : z.fill}
+            onClick={() => handleClick(z.id)}
+            style={{ cursor: "pointer" }}
+          />
+        ))}
+
+        {/* 場地線 */}
+        <line x1={lx} y1={baseLineY}  x2={rx} y2={baseLineY}  stroke="white" strokeWidth="2.5"/>
+        <line x1={lx} y1={serveLineY} x2={rx} y2={serveLineY} stroke="white" strokeWidth="1.5"/>
+        <line x1={lx} y1={netY}       x2={rx} y2={netY}       stroke="white" strokeWidth="3.5"/>
+        <line x1={lx} y1={netY}       x2={lx} y2={baseLineY}  stroke="white" strokeWidth="2"/>
+        <line x1={rx} y1={netY}       x2={rx} y2={baseLineY}  stroke="white" strokeWidth="2"/>
+        <line x1={mx} y1={netY}       x2={mx} y2={serveLineY} stroke="white" strokeWidth="1.5"/>
+
+        {/* 九宮格分隔線 */}
+        <line x1={lx+colW}   y1={netY} x2={lx+colW}   y2={baseLineY} stroke="rgba(255,255,255,0.35)" strokeWidth="1" strokeDasharray="3,3"/>
+        <line x1={lx+colW*2} y1={netY} x2={lx+colW*2} y2={baseLineY} stroke="rgba(255,255,255,0.35)" strokeWidth="1" strokeDasharray="3,3"/>
+        <line x1={lx} y1={midZoneY+midZoneH} x2={rx} y2={midZoneY+midZoneH} stroke="rgba(255,255,255,0.35)" strokeWidth="1" strokeDasharray="3,3"/>
+
+        {/* 區域標籤 */}
+        {zones.map((z) => (
+          <text key={z.id+"t"} x={z.x + z.w/2} y={z.y + z.h/2}
+            textAnchor="middle" dominantBaseline="middle"
+            fill={selected === z.id ? "#00e5a0" : "rgba(255,255,255,0.75)"}
+            fontSize="9" fontWeight={selected === z.id ? "bold" : "normal"}
+            onClick={() => handleClick(z.id)}
+            style={{ cursor: "pointer", userSelect: "none" }}
+          >{z.label}</text>
+        ))}
+
+        {/* 區域名稱（左側） */}
+        <text x={lx - 3} y={netZoneY  + netZoneH/2}  textAnchor="end" dominantBaseline="middle" fill="white" fontSize="7.5" opacity="0.8">網前</text>
+        <text x={lx - 3} y={midZoneY  + midZoneH/2}  textAnchor="end" dominantBaseline="middle" fill="white" fontSize="7.5" opacity="0.8">中場</text>
+        <text x={lx - 3} y={baseZoneY + baseZoneH/2} textAnchor="end" dominantBaseline="middle" fill="white" fontSize="7.5" opacity="0.8">底線</text>
+
+        {/* 網標示 */}
+        <text x={mx} y={netY - 5} textAnchor="middle" fill="white" fontSize="9" opacity="0.9">網</text>
+
+        {/* 擊球方站位 */}
+        <circle cx={mx} cy={baseLineY + 17} r="9" fill="#f5a623" opacity="0.95"/>
+        <text x={mx} y={baseLineY + 21} textAnchor="middle" fill="#0a0f1e" fontSize="7.5" fontWeight="bold">擊</text>
+      </svg>
+    </div>
+  );
+}
+const styles = {
+  app: { minHeight: "100vh", background: "#0a0f1e", color: "#e8eaf6", fontFamily: "'Noto Sans TC', sans-serif", display: "flex", flexDirection: "column" },
+  setup: { minHeight: "100vh", background: "radial-gradient(ellipse at 60% 40%, #0d2137 0%, #0a0f1e 70%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" },
+  setupCard: { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(123,156,255,0.2)", borderRadius: "20px", padding: "2.5rem", width: "100%", maxWidth: "520px", textAlign: "center" },
+  courtIcon: { fontSize: "3rem", marginBottom: "0.5rem" },
+  title: { fontSize: "1.8rem", fontWeight: 900, color: "#e8eaf6", margin: "0 0 0.3rem" },
+  subtitle: { color: "#7b9cff", fontSize: "0.9rem", margin: "0 0 2rem", letterSpacing: "0.1em" },
+  inputRow: { display: "flex", gap: "1rem", alignItems: "center", marginBottom: "1.5rem" },
+  inputGroup: { flex: 1, textAlign: "left" },
+  label: { display: "block", fontSize: "0.75rem", color: "#7b9cff", marginBottom: "0.4rem", letterSpacing: "0.08em" },
+  input: { width: "100%", padding: "0.6rem 0.8rem", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(123,156,255,0.3)", borderRadius: "8px", color: "#e8eaf6", fontSize: "0.95rem", boxSizing: "border-box" },
+  vs: { fontSize: "1.2rem", fontWeight: 900, color: "#7b9cff", flexShrink: 0 },
+  serverSelect: { marginBottom: "2rem", textAlign: "left" },
+  btnRow: { display: "flex", gap: "0.8rem", marginTop: "0.5rem" },
+  toggleBtn: { flex: 1, padding: "0.6rem", background: "transparent", border: "1px solid rgba(123,156,255,0.3)", borderRadius: "8px", color: "#7b9cff", cursor: "pointer", fontSize: "0.9rem", transition: "all 0.2s" },
+  toggleBtnActive: { background: "#7b9cff", color: "#0a0f1e", fontWeight: 700 },
+  startBtn: { width: "100%", padding: "1rem", background: "linear-gradient(135deg, #7b9cff, #00e5a0)", border: "none", borderRadius: "12px", color: "#0a0f1e", fontWeight: 900, fontSize: "1.1rem", cursor: "pointer", letterSpacing: "0.05em" },
+  setsDisplay: { display: "flex", gap: "0.5rem", justifyContent: "center", margin: "1rem 0" },
+  setBadge: { background: "rgba(123,156,255,0.15)", border: "1px solid rgba(123,156,255,0.3)", borderRadius: "20px", padding: "0.3rem 0.8rem", fontSize: "0.85rem", color: "#7b9cff" },
+  scoreboard: { display: "flex", alignItems: "center", background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.07)", padding: "1rem 1.2rem", gap: "0.5rem" },
+  scoreCol: { flex: 1 },
+  playerName: { fontSize: "0.9rem", fontWeight: 700, color: "#e8eaf6", display: "flex", alignItems: "center", gap: "0.3rem" },
+  serverDot: { color: "#f5a623", fontSize: "0.6rem" },
+  pointsWon: { fontSize: "1.5rem", fontWeight: 900, color: "#00e5a0" },
+  scoreCenter: { textAlign: "center", minWidth: "100px" },
+  setsRow: { display: "flex", gap: "0.3rem", justifyContent: "center", marginBottom: "0.2rem" },
+  setNum: { background: "rgba(123,156,255,0.1)", borderRadius: "4px", padding: "0 0.4rem", fontSize: "0.75rem", color: "#7b9cff" },
+  gameScore: { fontSize: "1.4rem", fontWeight: 900, color: "#e8eaf6", lineHeight: 1 },
+  setScore: { fontSize: "0.8rem", color: "#7b9cff", marginTop: "0.2rem" },
+  phase: { padding: "1rem" },
+  panel: { background: "rgba(255,255,255,0.03)", border: "1px solid", borderRadius: "16px", padding: "1.2rem" },
+  panelTitle: { fontSize: "1rem", fontWeight: 700, marginBottom: "1rem", letterSpacing: "0.05em" },
+  btnGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.7rem" },
+  actionBtn: { padding: "0.8rem", background: "transparent", border: "1px solid", borderRadius: "10px", cursor: "pointer", fontSize: "0.9rem", fontWeight: 700, fontFamily: "inherit", transition: "all 0.15s" },
+  hint: { color: "#7b9cff", fontSize: "0.85rem", margin: "0 0 0.8rem", textAlign: "center" },
+  shotBtnsCenter: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" },
+  shotBtns: { display: "flex", flexDirection: "column", gap: "0.4rem" },
+  shotBtn: { padding: "0.5rem 0.6rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "#e8eaf6", cursor: "pointer", fontSize: "0.82rem", fontFamily: "inherit", textAlign: "center", transition: "all 0.15s" },
+  backBtn: { marginTop: "0.8rem", background: "transparent", border: "none", color: "#7b9cff", cursor: "pointer", fontSize: "0.85rem", fontFamily: "inherit" },
+  log: { flex: 1, padding: "0 1rem 1rem" },
+  logHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.7rem" },
+  statsBtn: { background: "transparent", border: "1px solid rgba(123,156,255,0.3)", borderRadius: "8px", color: "#7b9cff", padding: "0.4rem 0.8rem", cursor: "pointer", fontSize: "0.8rem", fontFamily: "inherit" },
+  undoBtn: { background: "transparent", border: "1px solid rgba(255,107,107,0.4)", borderRadius: "8px", color: "#ff6b6b", padding: "0.4rem 0.8rem", cursor: "pointer", fontSize: "0.8rem", fontFamily: "inherit" },
+  exportBtn: { flex: 1, background: "transparent", border: "1px solid", borderRadius: "10px", padding: "0.7rem", cursor: "pointer", fontSize: "0.9rem", fontWeight: 700, fontFamily: "inherit" },
+  pointList: { display: "flex", flexDirection: "column", gap: "0.4rem" },
+  pointRow: { display: "flex", alignItems: "center", gap: "0.6rem", background: "rgba(255,255,255,0.03)", borderRadius: "8px", padding: "0.5rem 0.8rem", fontSize: "0.82rem" },
+  pointIdx: { color: "#444d6e", minWidth: "28px" },
+  pointWinner: { flex: 1, fontWeight: 700 },
+  pointReason: { color: "#aaa", fontSize: "0.78rem" },
+  pointRally: { color: "#f5a623", fontSize: "0.75rem", background: "rgba(245,166,35,0.1)", borderRadius: "4px", padding: "0.1rem 0.4rem" },
+  statsPanel: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(123,156,255,0.15)", borderRadius: "12px", padding: "1rem", marginBottom: "0.8rem" },
+  statsTitle: { fontWeight: 800, marginBottom: "0.5rem", color: "#e8eaf6" },
+  statsAvg: { fontSize: "0.8rem", color: "#7b9cff", marginBottom: "0.8rem" },
+  statsHeader: { display: "grid", gridTemplateColumns: "1fr 2fr 1fr", fontSize: "0.75rem", color: "#444d6e", marginBottom: "0.5rem" },
+  statsRow: { display: "grid", gridTemplateColumns: "1fr 2fr 1fr", borderTop: "1px solid rgba(255,255,255,0.04)", padding: "0.35rem 0", fontSize: "0.85rem" },
+  statsLabel: { textAlign: "center", color: "#aaa", fontSize: "0.78rem" },
+  tabBar: { display: "flex", gap: "0", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)", padding: "0 0.8rem" },
+  tabBtn: { flex: 1, padding: "0.65rem 0.4rem", background: "transparent", border: "none", borderBottom: "2.5px solid transparent", color: "#444d6e", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600, fontFamily: "inherit", transition: "all 0.15s" },
+  tabBtnActive: { color: "#e8eaf6", borderBottom: "2.5px solid #7b9cff" },
+  tabContent: { padding: "0.8rem 1rem 1rem" },
+};
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(TennisTracker));
+  </script>
+</body>
+</html>
