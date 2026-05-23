@@ -1111,6 +1111,9 @@ function TennisTracker() {
               <ActionBtn label="⚡ ACE" color="#00e5a0" onClick={handleServe1Ace} />
               <ActionBtn label="✗ 失誤（第二發）" color="#ff6b6b" onClick={handleServe1Fault} />
             </div>
+            {points.length > 0 && (
+              <button style={styles.backBtn} onClick={undoLastPoint}>← 返回上一球</button>
+            )}
           </PhasePanel>
         )}
 
@@ -1121,6 +1124,7 @@ function TennisTracker() {
               <ActionBtn label="⚡ ACE" color="#00e5a0" onClick={handleServe2Ace} />
               <ActionBtn label="✗ Double Fault" color="#ff6b6b" onClick={handleDoubleFault} />
             </div>
+            <button style={styles.backBtn} onClick={() => setPhase("serve1")}>← 返回第一發球</button>
           </PhasePanel>
         )}
 
@@ -1170,6 +1174,17 @@ function TennisTracker() {
                     <button key={st} style={styles.shotBtn} onClick={() => startRallyShot(nextHitter, st)}>{st}</button>
                   ))}
                 </div>
+                <button style={styles.backBtn} onClick={() => {
+                  if (currentPoint.rallyCount === 0) {
+                    setPhase("serve1");
+                    setCurrentPoint((p) => ({ ...p, serve1: null, serve2: null }));
+                  } else {
+                    const prevEvents = currentPoint.rallyEvents.slice(0, -1);
+                    const lastShotBy = prevEvents.length > 0 ? prevEvents[prevEvents.length - 1].shotBy : currentPoint.server;
+                    setCurrentPoint((p) => ({ ...p, rallyEvents: prevEvents, rallyCount: p.rallyCount - 1 }));
+                    setNextHitter(lastShotBy === "p1" ? "p2" : "p1");
+                  }
+                }}>← {currentPoint && currentPoint.rallyCount === 0 ? "返回發球" : "撤回上一拍"}</button>
               </>
             ) : (
               <>
