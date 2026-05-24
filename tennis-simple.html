@@ -477,6 +477,14 @@ function App() {
     </div>
   );
 
+
+  // Build shot breakdown per reason per player
+  const shotBreakdown = (reasonId, player) => {
+    const filtered = points.filter(pt => pt.reason===reasonId && pt.actor===player && pt.shot);
+    const counts = {};
+    filtered.forEach(pt => { counts[pt.shot] = (counts[pt.shot]||0)+1; });
+    return Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  };
   // ── MATCH OVER ─────────────────────────────────────────────────────────────
   if (page==="over") {
     const mw=matchWinner;
@@ -966,14 +974,6 @@ function App() {
   );
 
   // ── STATS TAB ──────────────────────────────────────────────────────────────
-
-  // Build shot breakdown per reason per player
-  const shotBreakdown = (reasonId, player) => {
-    const filtered = points.filter(pt => pt.reason===reasonId && pt.actor===player && pt.shot);
-    const counts = {};
-    filtered.forEach(pt => { counts[pt.shot] = (counts[pt.shot]||0)+1; });
-    return Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-  };
 
   const statsTab = (
     <div className="stats-tab">
