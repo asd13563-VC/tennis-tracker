@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>🎾 教練記錄板</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    :root {
+      --bg: #0d0d0d; --surface: #161616; --border: #2a2a2a;
+      --p1: #f5c518; --p2: #18c9f5; --green: #3ddc84;
+      --red: #ff4d4d; --orange: #ff8c00; --purple: #b066ff;
+      --text: #f0f0f0; --muted: #666; --radius: 14px;
+    }
+    body { background: var(--bg); font-family: 'Noto Sans TC', sans-serif; color: var(--text); overscroll-behavior: none; min-height: 100vh; }
+    #app { min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* SETUP */
+    .setup { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:1.5rem; gap:1.2rem; }
+    .setup-title { font-family:'Bebas Neue',cursive; font-size:3rem; letter-spacing:0.15em; color:var(--p1); text-align:center; }
+    .setup-sub { color:var(--muted); font-size:0.82rem; letter-spacing:0.12em; text-transform:uppercase; text-align:center; margin-top:-0.6rem; }
+    .setup-card { background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:1.4rem; width:100%; max-width:400px; display:flex; flex-direction:column; gap:1rem; }
+    .setup-label { font-size:0.72rem; color:var(--muted); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:0.35rem; }
+    .setup-input { width:100%; padding:0.75rem 1rem; background:#1e1e1e; border:1px solid var(--border); border-radius:10px; color:var(--text); font-size:1.05rem; font-family:inherit; outline:none; }
+    .setup-input:focus { border-color:var(--p1); }
+    .setup-divider { display:flex; align-items:center; gap:0.8rem; color:var(--muted); font-size:0.75rem; }
+    .setup-divider::before, .setup-divider::after { content:''; flex:1; border-top:1px solid var(--border); }
+    .format-grid { display:flex; flex-direction:column; gap:0.5rem; }
+    .format-btn { padding:0.65rem 1rem; background:transparent; border:1px solid var(--border); border-radius:10px; color:var(--muted); font-size:0.88rem; font-family:inherit; cursor:pointer; text-align:left; }
+    .format-btn.active { border-color:var(--p1); color:var(--p1); background:rgba(245,197,24,0.07); font-weight:700; }
+    .server-row { display:flex; gap:0.6rem; }
+    .server-btn { flex:1; padding:0.65rem; background:transparent; border:1px solid var(--border); border-radius:10px; color:var(--muted); font-size:0.9rem; font-family:inherit; cursor:pointer; font-weight:700; }
+    .server-btn.p1.active { border-color:var(--p1); color:var(--p1); background:rgba(245,197,24,0.08); }
+    .server-btn.p2.active { border-color:var(--p2); color:var(--p2); background:rgba(24,201,245,0.08); }
+    .start-btn { width:100%; padding:1.1rem; background:var(--p1); border:none; border-radius:14px; color:#000; font-size:1.1rem; font-weight:900; font-family:inherit; cursor:pointer; }
+
+    /* SCOREBOARD */
+    .scoreboard { background:var(--surface); border-bottom:1px solid var(--border); padding:0.8rem 1rem; position:sticky; top:0; z-index:10; }
+    .scoreboard-inner { display:flex; align-items:stretch; gap:0.4rem; max-width:500px; margin:0 auto; }
+    .player-col { flex:1; display:flex; flex-direction:column; gap:0.2rem; }
+    .player-name { font-size:0.75rem; font-weight:700; letter-spacing:0.06em; display:flex; align-items:center; gap:0.35rem; }
+    .player-name.p1 { color:var(--p1); }
+    .player-name.p2 { color:var(--p2); justify-content:flex-end; }
+    .serve-dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; animation:pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+    .score-num { font-family:'Bebas Neue',cursive; font-size:2.8rem; line-height:1; }
+    .player-col.p1 .score-num { color:var(--p1); }
+    .player-col.p2 .score-num { color:var(--p2); text-align:right; }
+    .sets-mini { font-size:0.72rem; color:var(--muted); display:flex; gap:0.3rem; flex-wrap:wrap; }
+    .player-col.p2 .sets-mini { justify-content:flex-end; }
+    .set-chip { background:#222; border-radius:4px; padding:0.1rem 0.35rem; }
+    .set-chip.won { color:var(--text); font-weight:700; }
+    .score-center { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 0.4rem; gap:0.1rem; }
+    .game-score { font-family:'Bebas Neue',cursive; font-size:1.4rem; color:var(--text); line-height:1; }
+    .tiebreak-badge { font-size:0.6rem; background:rgba(245,197,24,0.15); color:var(--p1); border:1px solid rgba(245,197,24,0.3); border-radius:5px; padding:0.1rem 0.4rem; font-weight:700; }
+
+    /* TABS */
+    .tab-bar { display:flex; border-bottom:1px solid var(--border); background:var(--surface); }
+    .tab-btn { flex:1; padding:0.65rem 0; background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); font-size:0.8rem; font-family:inherit; font-weight:700; cursor:pointer; letter-spacing:0.06em; }
+    .tab-btn.active { color:var(--text); border-bottom-color:var(--p1); }
+
+    /* RECORD */
+    .record-tab { padding:0.8rem; display:flex; flex-direction:column; gap:0.8rem; max-width:500px; margin:0 auto; width:100%; }
+    .section-label { font-size:0.68rem; color:var(--muted); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:0.4rem; }
+    .winner-row { display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; }
+    .winner-btn { padding:1.2rem 0.5rem; border:2px solid; border-radius:var(--radius); font-family:inherit; font-size:1rem; font-weight:900; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:0.25rem; }
+    .winner-btn:active { opacity:0.75; }
+    .winner-btn.p1 { background:rgba(245,197,24,0.08); border-color:var(--p1); color:var(--p1); }
+    .winner-btn.p2 { background:rgba(24,201,245,0.08); border-color:var(--p2); color:var(--p2); }
+    .btn-sub { font-size:0.7rem; font-weight:400; color:var(--muted); }
+
+    /* REASON BUTTONS */
+    .reason-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.55rem; }
+    .reason-btn { padding:0.9rem 0.4rem; border:1px solid var(--border); border-radius:var(--radius); background:#181818; color:var(--text); font-family:inherit; font-size:0.88rem; font-weight:700; cursor:pointer; text-align:center; display:flex; flex-direction:column; align-items:center; gap:0.3rem; }
+    .reason-btn:active { opacity:0.75; }
+    .reason-btn .reason-icon { font-size:1.4rem; }
+    .reason-btn.double-fault { border-color:#ff4d4d55; color:var(--red); background:rgba(255,77,77,0.08); }
+    .reason-btn.unforced    { border-color:#ff8c0055; color:var(--orange); background:rgba(255,140,0,0.08); }
+    .reason-btn.forced      { border-color:#b066ff55; color:var(--purple); background:rgba(176,102,255,0.08); }
+    .reason-btn.win         { border-color:#3ddc8455; color:var(--green); background:rgba(61,220,132,0.08); }
+    .reason-btn.ace         { border-color:#18c9f555; color:var(--p2); background:rgba(24,201,245,0.08); }
+
+    /* HAND SELECTION - big 2 buttons */
+    .hand-row { display:grid; grid-template-columns:1fr 1fr; gap:0.7rem; }
+    .hand-btn { padding:1.5rem 0.5rem; border:2px solid var(--border); border-radius:var(--radius); background:#181818; color:var(--text); font-family:inherit; font-size:1.1rem; font-weight:900; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:0.5rem; }
+    .hand-btn:active { opacity:0.75; }
+    .hand-btn .hand-icon { font-size:2rem; }
+    .hand-btn.forehand { border-color:#f5c51866; color:var(--p1); background:rgba(245,197,24,0.07); }
+    .hand-btn.backhand  { border-color:#18c9f566; color:var(--p2); background:rgba(24,201,245,0.07); }
+
+    /* SHOT TYPE GRID */
+    .shot-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.45rem; }
+    .shot-btn { padding:0.75rem 0.3rem; border:1px solid var(--border); border-radius:10px; background:#181818; color:var(--text); font-family:inherit; font-size:0.78rem; font-weight:700; cursor:pointer; text-align:center; display:flex; flex-direction:column; align-items:center; gap:0.3rem; }
+    .shot-btn:active { opacity:0.75; }
+    .shot-btn .shot-icon { font-size:1.2rem; }
+    .shot-btn.fh { border-color:#f5c51855; color:var(--p1); background:rgba(245,197,24,0.06); }
+    .shot-btn.bh { border-color:#18c9f555; color:var(--p2); background:rgba(24,201,245,0.06); }
+
+    /* STEP BREADCRUMB */
+    .step-bar { display:flex; align-items:center; gap:0.4rem; margin-bottom:0.2rem; }
+    .step-dot { width:8px; height:8px; border-radius:50%; background:var(--border); flex-shrink:0; }
+    .step-dot.done { background:var(--p1); }
+    .step-dot.current { background:var(--p1); box-shadow:0 0 6px var(--p1); }
+    .step-line { flex:1; height:1px; background:var(--border); }
+    .step-label { font-size:0.7rem; color:var(--muted); }
+
+    /* PENDING HEADER */
+    .pending-header { background:rgba(245,197,24,0.06); border:1px solid rgba(245,197,24,0.3); border-radius:14px; padding:0.8rem 1rem; display:flex; align-items:center; gap:0.8rem; }
+    .pending-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .pending-dot.p1 { background:var(--p1); }
+    .pending-dot.p2 { background:var(--p2); }
+    .pending-text { font-size:0.88rem; font-weight:700; flex:1; }
+    .pending-sub { font-weight:400; color:var(--muted); font-size:0.75rem; display:block; margin-top:0.1rem; }
+    .pending-tags { display:flex; gap:0.35rem; flex-wrap:wrap; margin-top:0.4rem; }
+    .tag { font-size:0.68rem; padding:0.15rem 0.5rem; border-radius:20px; font-weight:700; background:#222; color:var(--muted); border:1px solid var(--border); }
+    .tag.filled { background:rgba(245,197,24,0.12); color:var(--p1); border-color:rgba(245,197,24,0.3); }
+    .cancel-btn { background:transparent; border:1px solid var(--border); border-radius:7px; color:var(--muted); font-size:0.75rem; font-family:inherit; cursor:pointer; padding:0.3rem 0.6rem; flex-shrink:0; }
+
+    /* SERVE BAR */
+    .serve-bar { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; }
+    .serve-phase-badge { display:inline-flex; align-items:center; gap:0.4rem; background:rgba(245,197,24,0.1); border:1px solid rgba(245,197,24,0.3); border-radius:20px; padding:0.3rem 0.8rem; font-size:0.75rem; color:var(--p1); font-weight:700; }
+    .fault-btn { padding:0.45rem 0.9rem; background:rgba(255,77,77,0.1); border:1px solid rgba(255,77,77,0.35); border-radius:9px; color:var(--red); font-size:0.8rem; font-weight:700; font-family:inherit; cursor:pointer; }
+
+    /* LOG / UNDO */
+    .undo-btn { background:transparent; border:1px solid #ff4d4d44; border-radius:8px; color:#ff4d4d88; font-size:0.75rem; font-family:inherit; cursor:pointer; padding:0.35rem 0.7rem; }
+    .log-entry { display:flex; align-items:center; gap:0.5rem; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:0.5rem 0.8rem; font-size:0.8rem; margin-bottom:0.35rem; flex-wrap:wrap; }
+    .log-idx { color:var(--muted); font-size:0.72rem; min-width:22px; }
+    .log-winner { font-weight:700; }
+    .log-winner.p1 { color:var(--p1); }
+    .log-winner.p2 { color:var(--p2); }
+    .log-score { color:var(--muted); font-size:0.7rem; margin-left:auto; white-space:nowrap; }
+    .reason-chip { font-size:0.68rem; padding:0.15rem 0.45rem; border-radius:5px; font-weight:700; }
+    .reason-chip.double_fault   { background:rgba(255,77,77,0.15); color:var(--red); }
+    .reason-chip.unforced_error { background:rgba(255,140,0,0.15); color:var(--orange); }
+    .reason-chip.forced_error   { background:rgba(176,102,255,0.15); color:var(--purple); }
+    .reason-chip.winner         { background:rgba(61,220,132,0.15); color:var(--green); }
+    .hand-chip { font-size:0.68rem; padding:0.15rem 0.45rem; border-radius:5px; font-weight:700; background:rgba(245,197,24,0.12); color:var(--p1); }
+    .shot-chip { font-size:0.68rem; padding:0.15rem 0.45rem; border-radius:5px; font-weight:700; background:rgba(24,201,245,0.12); color:var(--p2); }
+
+    /* STATS */
+    .stats-tab { padding:0.8rem; display:flex; flex-direction:column; gap:0.7rem; max-width:500px; margin:0 auto; width:100%; }
+    .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+    .stat-card-title { padding:0.6rem 1rem; font-size:0.7rem; letter-spacing:0.1em; color:var(--muted); border-bottom:1px solid var(--border); text-transform:uppercase; }
+    .stat-row { display:flex; align-items:center; padding:0.65rem 1rem; gap:0.5rem; }
+    .stat-val { font-family:'Bebas Neue',cursive; font-size:1.5rem; line-height:1; min-width:2.5rem; text-align:center; }
+    .stat-val.p1 { color:var(--p1); }
+    .stat-val.p2 { color:var(--p2); }
+    .stat-bar-wrap { flex:1; display:flex; flex-direction:column; gap:0.3rem; }
+    .stat-bar-bg { height:6px; background:#222; border-radius:3px; overflow:hidden; }
+    .stat-bar-fill { height:100%; border-radius:3px; }
+    .big-stat-grid { display:grid; grid-template-columns:1fr 1fr 1fr; text-align:center; }
+    .big-stat-item { padding:0.8rem 0.5rem; border-right:1px solid #1a1a1a; }
+    .big-stat-item:last-child { border-right:none; }
+    .big-stat-num { font-family:'Bebas Neue',cursive; font-size:2rem; line-height:1; }
+    .big-stat-label { font-size:0.65rem; color:var(--muted); margin-top:0.2rem; }
+
+    /* LOG */
+    .log-tab { padding:0.8rem; display:flex; flex-direction:column; max-width:500px; margin:0 auto; width:100%; }
+    .empty-log { text-align:center; color:var(--muted); font-size:0.85rem; padding:2rem; }
+
+    /* OVERLAY */
+    .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:100; padding:1.5rem; }
+    .overlay-card { background:#1a1a1a; border:1px solid var(--p1); border-radius:20px; padding:2rem; text-align:center; max-width:320px; width:100%; display:flex; flex-direction:column; gap:1rem; }
+    .overlay-icon { font-size:2.5rem; }
+    .overlay-title { font-family:'Bebas Neue',cursive; font-size:1.8rem; letter-spacing:0.1em; color:var(--p1); }
+    .overlay-text { color:var(--muted); font-size:0.88rem; line-height:1.6; }
+    .overlay-btn { padding:0.9rem; background:var(--p1); border:none; border-radius:12px; color:#000; font-size:1rem; font-weight:900; font-family:inherit; cursor:pointer; }
+
+    /* MATCH OVER */
+    .match-over { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:2rem; gap:1.2rem; text-align:center; }
+    .over-title { font-family:'Bebas Neue',cursive; font-size:2.5rem; letter-spacing:0.1em; }
+    .new-match-btn { padding:1rem 2rem; background:var(--p1); border:none; border-radius:14px; color:#000; font-size:1rem; font-weight:900; font-family:inherit; cursor:pointer; }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const { useState } = React;
+
+const SCORE_SEQ = ["0","15","30","40"];
+
+const FORMATS = [
+  { id:"s6_noad", label:"一盤六局（Deuce搶一分）", sets:1, games:6, noAd:true,  superTB:false },
+  { id:"s6",      label:"一盤六局",                 sets:1, games:6, noAd:false, superTB:false },
+  { id:"s8",      label:"一盤八局",                 sets:1, games:8, noAd:false, superTB:false },
+  { id:"bo3",     label:"三盤兩勝（第三盤Super TB）",sets:3, games:6, noAd:false, superTB:true  },
+  { id:"bo3f",    label:"三盤兩勝（完整三盤）",      sets:3, games:6, noAd:false, superTB:false },
+];
+
+const REASON_LIST = [
+  { id:"double_fault",   label:"雙發失誤", icon:"💥", cls:"double-fault", serverOnly:true,  loser:true  },
+  { id:"unforced_error", label:"非受迫失誤",icon:"😬", cls:"unforced",    serverOnly:false, loser:true  },
+  { id:"forced_error",   label:"受迫失誤", icon:"😤", cls:"forced",       serverOnly:false, loser:true  },
+  { id:"winner",         label:"Winner",  icon:"⚡", cls:"win",          serverOnly:false, loser:false },
+  { id:"ace",            label:"Ace",     icon:"🚀", cls:"ace",          serverOnly:true,  loser:false },
+];
+
+// 雙發失誤、Ace 不需要選正反拍/球種
+// Winner、受迫、非受迫 都需要選
+const NEEDS_HAND = ["unforced_error","forced_error","winner"];
+
+const SHOT_TYPES = [
+  { id:"fh_drive",   label:"正拍抽球",     icon:"🎾", hand:"fh" },
+  { id:"fh_slice",   label:"正拍切球",     icon:"✂️", hand:"fh" },
+  { id:"fh_lob",     label:"正拍吊球",     icon:"🌙", hand:"fh" },
+  { id:"fh_drop",    label:"正拍放短",     icon:"🪶", hand:"fh" },
+  { id:"fh_smash",   label:"高壓",         icon:"🔨", hand:"fh" },
+  { id:"fh_mid",     label:"正拍中場攻擊", icon:"💨", hand:"fh" },
+  { id:"fh_swinging",label:"正拍空抽",     icon:"🌀", hand:"fh" },
+  { id:"bh_drive",    label:"反拍抽球",     icon:"🎾", hand:"bh" },
+  { id:"bh_slice",    label:"反拍切球",     icon:"✂️", hand:"bh" },
+  { id:"bh_lob",      label:"反拍吊球",     icon:"🌙", hand:"bh" },
+  { id:"bh_drop",     label:"反拍放短",     icon:"🪶", hand:"bh" },
+  { id:"bh_smash",    label:"高壓",         icon:"🔨", hand:"bh" },
+  { id:"bh_mid",      label:"反拍中場攻擊", icon:"💨", hand:"bh" },
+  { id:"bh_swinging", label:"反拍空抽",     icon:"🌀", hand:"bh" },
+  { id:"volley_fh",   label:"正拍截擊",     icon:"⚡", hand:"fh" },
+  { id:"volley_bh",   label:"反拍截擊",     icon:"⚡", hand:"bh" },
+];
+
+function gameLabel(g, tb, noAd) {
+  if (tb) return `${g.p1} – ${g.p2}`;
+  const s1 = SCORE_SEQ[g.p1] ?? "AD";
+  const s2 = SCORE_SEQ[g.p2] ?? "AD";
+  if (g.p1 >= 3 && g.p2 >= 3) {
+    if (noAd) return "Deuce ★";
+    if (g.p1 === g.p2) return "Deuce";
+    return g.p1 > g.p2 ? "Adv A" : "Adv B";
+  }
+  return `${s1} – ${s2}`;
+}
+
+function advanceScore(score, pointWinner, fmt, superTB) {
+  const { games: maxGames, sets: maxSets, noAd, superTB: fmtSuperTB } = fmt;
+  let { sets, curSet, curGame, tb } = score;
+  curGame = { ...curGame }; curSet = { ...curSet }; sets = sets.map(s=>({...s}));
+  const other = pointWinner === "p1" ? "p2" : "p1";
+
+  if (superTB) {
+    curGame[pointWinner]++;
+    if (curGame[pointWinner] >= 10 && curGame[pointWinner] - curGame[other] >= 2) {
+      sets = [...sets, { p1:curSet.p1, p2:curSet.p2 }];
+      return { newScore:{sets,curSet:{p1:0,p2:0},curGame:{p1:0,p2:0},tb:false}, gameWon:true, setWon:true, matchWon:true };
+    }
+    return { newScore:{sets,curSet,curGame,tb}, gameWon:false, setWon:false, matchWon:false };
+  }
+
+  if (tb) {
+    curGame[pointWinner]++;
+    if (curGame[pointWinner] >= 7 && curGame[pointWinner] - curGame[other] >= 2) {
+      curSet[pointWinner]++;
+      const newSets = [...sets, {p1:curSet.p1,p2:curSet.p2}];
+      const sw = {p1:0,p2:0}; newSets.forEach(s=>{if(s.p1>s.p2)sw.p1++;else sw.p2++;});
+      const needed = maxSets===1?1:Math.ceil(maxSets/2);
+      if (sw[pointWinner] >= needed) return { newScore:{sets:newSets,curSet:{p1:0,p2:0},curGame:{p1:0,p2:0},tb:false}, gameWon:true,setWon:true,matchWon:true };
+      if (fmtSuperTB && sw.p1===1 && sw.p2===1) return { newScore:{sets:newSets,curSet:{p1:0,p2:0},curGame:{p1:0,p2:0},tb:false}, gameWon:true,setWon:true,matchWon:false,startSuperTB:true };
+      return { newScore:{sets:newSets,curSet:{p1:0,p2:0},curGame:{p1:0,p2:0},tb:false}, gameWon:true,setWon:true,matchWon:false };
+    }
+    return { newScore:{sets,curSet,curGame,tb}, gameWon:false,setWon:false,matchWon:false };
+  }
+
+  curGame[pointWinner]++;
+  let gameWon = false;
+  if (noAd) {
+    if (curGame[pointWinner]>=4) gameWon=true;
+    else if (curGame.p1>=3&&curGame.p2>=3&&curGame[pointWinner]>curGame[other]) gameWon=true;
+  } else {
+    if (curGame.p1>=3&&curGame.p2>=3) { if(curGame[pointWinner]-curGame[other]>=2) gameWon=true; }
+    else if (curGame[pointWinner]>=4) gameWon=true;
+  }
+  if (!gameWon) return { newScore:{sets,curSet,curGame,tb}, gameWon:false,setWon:false,matchWon:false };
+
+  curSet[pointWinner]++; curGame={p1:0,p2:0};
+  const setWon = (curSet[pointWinner]>=maxGames&&curSet[pointWinner]-curSet[other]>=2)||(curSet[pointWinner]>=maxGames+1);
+  if (!setWon) {
+    const newTB = curSet.p1===maxGames&&curSet.p2===maxGames;
+    return { newScore:{sets,curSet,curGame,tb:newTB}, gameWon:true,setWon:false,matchWon:false };
+  }
+  const newSets=[...sets,{p1:curSet.p1,p2:curSet.p2}];
+  const sw={p1:0,p2:0}; newSets.forEach(s=>{if(s.p1>s.p2)sw.p1++;else sw.p2++;});
+  const needed=maxSets===1?1:Math.ceil(maxSets/2);
+  if (sw[pointWinner]>=needed) return { newScore:{sets:newSets,curSet:{p1:0,p2:0},curGame,tb:false}, gameWon:true,setWon:true,matchWon:true };
+  if (fmtSuperTB&&sw.p1===1&&sw.p2===1) return { newScore:{sets:newSets,curSet:{p1:0,p2:0},curGame,tb:false}, gameWon:true,setWon:true,matchWon:false,startSuperTB:true };
+  return { newScore:{sets:newSets,curSet:{p1:0,p2:0},curGame,tb:false}, gameWon:true,setWon:true,matchWon:false };
+}
+
+// Recording flow steps:
+// "actor" → "reason" → "hand" → "shot" → "error_type" (失誤才有) → commit
+// step state: null | "reason" | "hand" | "shot" | "error_type"
+
+// Reasons that need error type (掛網/出界)
+const NEEDS_ERROR_TYPE = ["unforced_error","forced_error"];
+
+function App() {
+  const [page, setPage]       = useState("setup");
+  const [p1Name, setP1Name]   = useState("選手 A");
+  const [p2Name, setP2Name]   = useState("選手 B");
+  const [fmt, setFmt]         = useState(FORMATS[0]);
+  const [initSrv, setInitSrv] = useState("p1");
+
+  const [server, setServer]         = useState("p1");
+  const [servePhase, setServePhase] = useState(1);
+  const [score, setScore]           = useState({sets:[],curSet:{p1:0,p2:0},curGame:{p1:0,p2:0},tb:false});
+  const [superTB, setSuperTB]       = useState(false);
+  const [points, setPoints]         = useState([]);
+  const [tab, setTab]               = useState("record");
+  const [matchWinner, setMatchWinner] = useState(null);
+  const [showSides, setShowSides]   = useState(false);
+  const [expandedStat, setExpandedStat] = useState(null);
+
+  // Pending point being built
+  const [pending, setPending] = useState(null);
+  // pending = { actor, reason, hand, shot }  — filled step by step
+
+  const pName = p => p==="p1" ? p1Name : p2Name;
+
+  const resetPending = () => setPending(null);
+
+  const startMatch = () => {
+    setServer(initSrv); setServePhase(1);
+    setScore({sets:[],curSet:{p1:0,p2:0},curGame:{p1:0,p2:0},tb:false});
+    setSuperTB(false); setPoints([]); setPending(null);
+    setMatchWinner(null); setTab("record"); setPage("match");
+  };
+
+  const commitPoint = (fullPending) => {
+    const { actor, reason, hand, shot } = fullPending;
+    const reasonObj = REASON_LIST.find(r=>r.id===reason);
+    const pointWinner = reasonObj.loser ? (actor==="p1"?"p2":"p1") : actor;
+
+    const snap = {sets:score.sets.map(s=>({...s})),curSet:{...score.curSet},curGame:{...score.curGame},tb:score.tb,server,servePhase,superTB};
+    const result = advanceScore(score, pointWinner, fmt, superTB);
+
+    const newPt = { id:Date.now(), actor, reason, hand:hand||null, shot:shot||null, error_type:fullPending.error_type||null, winner:pointWinner, snap };
+    setPoints(prev=>[...prev, newPt]);
+    setPending(null);
+    setScore(result.newScore);
+
+    if (result.matchWon) { setMatchWinner(pointWinner); setPage("over"); return; }
+    if (result.startSuperTB) { setSuperTB(true); setServer(p=>p==="p1"?"p2":"p1"); setServePhase(1); return; }
+    if (result.gameWon) {
+      setServer(p=>p==="p1"?"p2":"p1"); setServePhase(1);
+      const totalG = result.newScore.sets.reduce((a,s)=>a+s.p1+s.p2,0)
+        + (result.setWon ? 0 : result.newScore.curSet.p1+result.newScore.curSet.p2);
+      if (totalG % 2 === 1) setShowSides(true);
+    } else {
+      setServePhase(1);
+    }
+  };
+
+  // Step handlers
+  const handleSelectActor = (actor) => {
+    setPending({ actor, reason:null, hand:null, shot:null, error_type:null });
+  };
+
+  const handleSelectReason = (reason) => {
+    const needsHand = NEEDS_HAND.includes(reason);
+    if (!needsHand) {
+      commitPoint({ ...pending, reason, hand:null, shot:null, error_type:null });
+    } else {
+      setPending(p=>({...p, reason, hand:null, shot:null, error_type:null}));
+    }
+  };
+
+  const handleSelectHand = (hand) => {
+    setPending(p=>({...p, hand, shot:null, error_type:null}));
+  };
+
+  const handleSelectShot = (shot) => {
+    const needsErrorType = NEEDS_ERROR_TYPE.includes(pending.reason);
+    if (needsErrorType) {
+      setPending(p=>({...p, shot, error_type:null}));
+    } else {
+      commitPoint({ ...pending, shot, error_type:null });
+    }
+  };
+
+  const handleSelectErrorType = (error_type) => {
+    commitPoint({ ...pending, error_type });
+  };
+
+  const handleFault = () => {
+    if (servePhase===1) { setServePhase(2); }
+    else { commitPoint({ actor:server, reason:"double_fault", hand:null, shot:null }); }
+  };
+
+  const undoLast = () => {
+    if (points.length===0) return;
+    const prev = points[points.length-1];
+    setPoints(p=>p.slice(0,-1));
+    setScore({sets:prev.snap.sets,curSet:prev.snap.curSet,curGame:prev.snap.curGame,tb:prev.snap.tb});
+    setServer(prev.snap.server); setServePhase(prev.snap.servePhase); setSuperTB(prev.snap.superTB);
+    setPending(null); setMatchWinner(null);
+    if (page==="over") setPage("match");
+  };
+
+  const stats = (() => {
+    const s = {
+      p1:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0,fh:0,bh:0,net:0,out:0},
+      p2:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0,fh:0,bh:0,net:0,out:0}
+    };
+    points.forEach(pt => {
+      s[pt.winner].pts++;
+      if (s[pt.actor][pt.reason]!==undefined) s[pt.actor][pt.reason]++;
+      if (pt.hand==="fh") s[pt.actor].fh++;
+      if (pt.hand==="bh") s[pt.actor].bh++;
+      if (pt.error_type==="net") s[pt.actor].net++;
+      if (pt.error_type==="out") s[pt.actor].out++;
+    });
+    return s;
+  })();
+
+  const gameScore = gameLabel(score.curGame, score.tb||superTB, fmt.noAd);
+
+  // Determine current sub-step
+  const step = !pending ? "actor"
+    : !pending.reason ? "reason"
+    : !pending.hand ? "hand"
+    : !pending.shot ? "shot"
+    : NEEDS_ERROR_TYPE.includes(pending.reason) && !pending.error_type ? "error_type"
+    : "done";
+
+  const filteredShots = pending?.hand
+    ? SHOT_TYPES.filter(s=>s.hand===pending.hand)
+    : [];
+
+  // ── SETUP ──────────────────────────────────────────────────────────────────
+  if (page==="setup") return (
+    <div className="setup">
+      <div className="setup-title">🎾 教練記錄板</div>
+      <div className="setup-sub">Tennis Coach Tracker</div>
+      <div className="setup-card">
+        <div>
+          <div className="setup-label">選手名稱</div>
+          <div style={{display:"flex",gap:"0.6rem",alignItems:"center"}}>
+            <input className="setup-input" value={p1Name} onChange={e=>setP1Name(e.target.value)} placeholder="選手 A"/>
+            <span style={{color:"#444",fontWeight:900,flexShrink:0}}>vs</span>
+            <input className="setup-input" value={p2Name} onChange={e=>setP2Name(e.target.value)} placeholder="選手 B"/>
+          </div>
+        </div>
+        <div className="setup-divider">賽制</div>
+        <div className="format-grid">
+          {FORMATS.map(f=>(
+            <button key={f.id} className={`format-btn ${fmt.id===f.id?"active":""}`} onClick={()=>setFmt(f)}>{f.label}</button>
+          ))}
+        </div>
+        <div className="setup-divider">先發球</div>
+        <div className="server-row">
+          <button className={`server-btn p1 ${initSrv==="p1"?"active":""}`} onClick={()=>setInitSrv("p1")}>● {p1Name||"選手 A"}</button>
+          <button className={`server-btn p2 ${initSrv==="p2"?"active":""}`} onClick={()=>setInitSrv("p2")}>● {p2Name||"選手 B"}</button>
+        </div>
+        <button className="start-btn" onClick={startMatch}>開始比賽</button>
+      </div>
+    </div>
+  );
+
+  // ── MATCH OVER ─────────────────────────────────────────────────────────────
+  if (page==="over") {
+    const mw=matchWinner;
+    const setsStr=score.sets.map(s=>`${s.p1}–${s.p2}`).join("  ");
+    return (
+      <div className="match-over">
+        <div style={{fontSize:"3.5rem"}}>🏆</div>
+        <div className="over-title" style={{color:mw==="p1"?"var(--p1)":"var(--p2)"}}>比賽結束</div>
+        <div style={{fontSize:"1.1rem",fontWeight:900,color:mw==="p1"?"var(--p1)":"var(--p2)"}}>{pName(mw)} 獲勝</div>
+        <div style={{color:"var(--muted)",fontSize:"1rem"}}>{setsStr}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem",background:"#161616",border:"1px solid #2a2a2a",borderRadius:14,padding:"1rem",width:"100%",maxWidth:320,marginTop:"0.5rem"}}>
+          {["p1","p2"].map(p=>(
+            <div key={p} style={{textAlign:"center"}}>
+              <div style={{fontSize:"0.72rem",color:"var(--muted)",marginBottom:"0.4rem"}}>{pName(p)}</div>
+              <div style={{fontFamily:"Bebas Neue",fontSize:"1.8rem",color:p==="p1"?"var(--p1)":"var(--p2)"}}>{stats[p].pts}</div>
+              <div style={{fontSize:"0.68rem",color:"var(--muted)"}}>得分</div>
+              <div style={{marginTop:"0.6rem",fontSize:"0.75rem",display:"flex",flexDirection:"column",gap:"0.2rem"}}>
+                <span style={{color:"var(--green)"}}>⚡ {stats[p].winner} Winner</span>
+                <span style={{color:"var(--p2)"}}>🚀 {stats[p].ace} Ace</span>
+                <span style={{color:"var(--orange)"}}>😬 {stats[p].unforced_error} 非受迫</span>
+                <span style={{color:"var(--purple)"}}>😤 {stats[p].forced_error} 受迫</span>
+                <span style={{color:"var(--red)"}}>💥 {stats[p].double_fault} 雙發</span>
+                <span style={{color:"var(--p1)"}}>🤚 {stats[p].fh} 正拍 / {stats[p].bh} 反拍</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button style={{background:"transparent",border:"1px solid var(--border)",borderRadius:10,color:"var(--muted)",padding:"0.5rem 1rem",fontFamily:"inherit",cursor:"pointer",fontSize:"0.85rem",marginBottom:"-0.5rem"}} onClick={undoLast}>↩ 撤銷最後一分</button>
+        <button className="new-match-btn" onClick={()=>setPage("setup")}>新比賽</button>
+      </div>
+    );
+  }
+
+  // ── RECORD TAB CONTENT ────────────────────────────────────────────────────
+  const recordTab = (
+    <div className="record-tab">
+
+      {/* Serve bar */}
+      <div className="serve-bar">
+        <span className="serve-phase-badge">
+          <span style={{fontFamily:"Bebas Neue",fontSize:"1rem"}}>{superTB?"Super TB":`第${servePhase}發`}</span>
+          &nbsp;{pName(server)} 發球
+        </span>
+        <button className="fault-btn" onClick={handleFault}>
+          {servePhase===1?"第1發失誤 →":"雙發失誤 💥"}
+        </button>
+      </div>
+
+      {/* Progress breadcrumb */}
+      {pending && (
+        <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}>
+          {["選手","結果","正/反拍","球種","掛網/出界"].map((lbl,i)=>{
+            const stepIdx = step==="actor"?0:step==="reason"?1:step==="hand"?2:step==="shot"?3:4;
+            return (
+              <React.Fragment key={i}>
+                {i>0&&<div style={{flex:1,height:1,background:i<=stepIdx?"var(--p1)":"var(--border)"}}/>}
+                <div style={{
+                  width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:"0.65rem",fontWeight:700,flexShrink:0,
+                  background:i<stepIdx?"var(--p1)":i===stepIdx?"rgba(245,197,24,0.2)":"var(--border)",
+                  color:i<=stepIdx?"var(--p1)":"var(--muted)",
+                  border:i===stepIdx?"1.5px solid var(--p1)":"1.5px solid transparent"
+                }}>{i+1}</div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+
+      {/* STEP: choose actor */}
+      {step==="actor" && (
+        <div>
+          <div className="section-label">誰有動作？選擇該選手</div>
+          <div className="winner-row">
+            <button className="winner-btn p1" onClick={()=>handleSelectActor("p1")}>
+              <span>{p1Name||"選手 A"}</span>
+              <span className="btn-sub">點此選擇</span>
+            </button>
+            <button className="winner-btn p2" onClick={()=>handleSelectActor("p2")}>
+              <span>{p2Name||"選手 B"}</span>
+              <span className="btn-sub">點此選擇</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP: choose reason */}
+      {step==="reason" && (
+        <div>
+          <div className="pending-header">
+            <div className={`pending-dot ${pending.actor}`}/>
+            <div className="pending-text">
+              {pName(pending.actor)}
+              <span className="pending-sub">選擇這一分的結果</span>
+            </div>
+            <button className="cancel-btn" onClick={resetPending}>取消</button>
+          </div>
+          <div style={{height:"0.6rem"}}/>
+          <div className="reason-grid">
+            {REASON_LIST.filter(r=>!(r.serverOnly&&pending.actor!==server)).map(r=>(
+              <button key={r.id} className={`reason-btn ${r.cls}`} onClick={()=>handleSelectReason(r.id)}>
+                <span className="reason-icon">{r.icon}</span>
+                <span>{r.label}</span>
+                <span style={{fontSize:"0.65rem",color:"var(--muted)",fontWeight:400}}>
+                  {r.loser?`${pName(pending.actor)} 失分`:`${pName(pending.actor)} 得分`}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* STEP: choose hand */}
+      {step==="hand" && (
+        <div>
+          <div className="pending-header">
+            <div className={`pending-dot ${pending.actor}`}/>
+            <div style={{flex:1}}>
+              <div className="pending-text">{pName(pending.actor)}</div>
+              <div className="pending-tags">
+                <span className={`tag filled`}>{REASON_LIST.find(r=>r.id===pending.reason)?.icon} {REASON_LIST.find(r=>r.id===pending.reason)?.label}</span>
+              </div>
+            </div>
+            <button className="cancel-btn" onClick={resetPending}>取消</button>
+          </div>
+          <div style={{height:"0.6rem"}}/>
+          <div className="section-label">正拍還是反拍？</div>
+          <div className="hand-row">
+            <button className="hand-btn forehand" onClick={()=>handleSelectHand("fh")}>
+              <span className="hand-icon">🤚</span>
+              <span>正拍</span>
+              <span style={{fontSize:"0.7rem",color:"var(--muted)",fontWeight:400}}>Forehand</span>
+            </button>
+            <button className="hand-btn backhand" onClick={()=>handleSelectHand("bh")}>
+              <span className="hand-icon">🫱</span>
+              <span>反拍</span>
+              <span style={{fontSize:"0.7rem",color:"var(--muted)",fontWeight:400}}>Backhand</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP: choose shot type */}
+      {step==="shot" && (
+        <div>
+          <div className="pending-header">
+            <div className={`pending-dot ${pending.actor}`}/>
+            <div style={{flex:1}}>
+              <div className="pending-text">{pName(pending.actor)}</div>
+              <div className="pending-tags">
+                <span className="tag filled">{REASON_LIST.find(r=>r.id===pending.reason)?.icon} {REASON_LIST.find(r=>r.id===pending.reason)?.label}</span>
+                <span className="tag filled">{pending.hand==="fh"?"🤚 正拍":"🫱 反拍"}</span>
+              </div>
+            </div>
+            <button className="cancel-btn" onClick={resetPending}>取消</button>
+          </div>
+          <div style={{height:"0.6rem"}}/>
+          <div className="section-label">擊球類型</div>
+          <div className="shot-grid">
+            {filteredShots.map(s=>(
+              <button key={s.id} className={`shot-btn ${s.hand}`} onClick={()=>handleSelectShot(s.id)}>
+                <span className="shot-icon">{s.icon}</span>
+                <span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* STEP: choose error type (掛網/出界) */}
+      {step==="error_type" && (
+        <div>
+          <div className="pending-header">
+            <div className={`pending-dot ${pending.actor}`}/>
+            <div style={{flex:1}}>
+              <div className="pending-text">{pName(pending.actor)}</div>
+              <div className="pending-tags">
+                <span className="tag filled">{REASON_LIST.find(r=>r.id===pending.reason)?.icon} {REASON_LIST.find(r=>r.id===pending.reason)?.label}</span>
+                <span className="tag filled">{pending.hand==="fh"?"🤚 正拍":"🫱 反拍"}</span>
+                <span className="tag filled">{SHOT_TYPES.find(s=>s.id===pending.shot)?.label}</span>
+              </div>
+            </div>
+            <button className="cancel-btn" onClick={resetPending}>取消</button>
+          </div>
+          <div style={{height:"0.6rem"}}/>
+          <div className="section-label">失誤原因</div>
+          <div className="hand-row">
+            <button className="hand-btn" style={{borderColor:"#ff6b6b66",color:"#ff6b6b",background:"rgba(255,107,107,0.07)"}}
+              onClick={()=>handleSelectErrorType("net")}>
+              <span className="hand-icon">🕸️</span>
+              <span>掛網</span>
+              <span style={{fontSize:"0.7rem",color:"var(--muted)",fontWeight:400}}>Into the Net</span>
+            </button>
+            <button className="hand-btn" style={{borderColor:"#ffd70066",color:"#ffd700",background:"rgba(255,215,0,0.07)"}}
+              onClick={()=>handleSelectErrorType("out")}>
+              <span className="hand-icon">📤</span>
+              <span>出界</span>
+              <span style={{fontSize:"0.7rem",color:"var(--muted)",fontWeight:400}}>Out</span>
+            </button>
+          </div>
+        </div>
+      )}
+      {points.length>0 && step==="actor" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.4rem"}}>
+            <div className="section-label">最近 5 分</div>
+            <button className="undo-btn" onClick={undoLast}>↩ 撤銷</button>
+          </div>
+          {[...points].reverse().slice(0,5).map((pt,i)=>{
+            const r=REASON_LIST.find(x=>x.id===pt.reason);
+            const sh=SHOT_TYPES.find(x=>x.id===pt.shot);
+            return (
+              <div key={pt.id} className="log-entry">
+                <span className="log-idx">#{points.length-i}</span>
+                <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)} 得分</span>
+                <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
+                {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"正拍":"反拍"}</span>}
+                {sh && <span className="shot-chip">{sh.label}</span>}
+                {pt.error_type && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.45rem",borderRadius:"5px",fontWeight:700,background:pt.error_type==="net"?"rgba(255,107,107,0.15)":"rgba(255,215,0,0.15)",color:pt.error_type==="net"?"#ff6b6b":"#ffd700"}}>{pt.error_type==="net"?"🕸️掛網":"📤出界"}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── STATS TAB ──────────────────────────────────────────────────────────────
+
+  // Build shot breakdown per reason per player
+  const shotBreakdown = (reasonId, player) => {
+    const filtered = points.filter(pt => pt.reason===reasonId && pt.actor===player && pt.shot);
+    const counts = {};
+    filtered.forEach(pt => { counts[pt.shot] = (counts[pt.shot]||0)+1; });
+    return Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  };
+
+  const statsTab = (
+    <div className="stats-tab">
+      <div className="stat-card">
+        <div className="stat-card-title">得分數</div>
+        <div className="big-stat-grid">
+          <div className="big-stat-item">
+            <div className="big-stat-num" style={{color:"var(--p1)"}}>{stats.p1.pts}</div>
+            <div className="big-stat-label" style={{color:"var(--p1)"}}>{p1Name}</div>
+          </div>
+          <div className="big-stat-item">
+            <div className="big-stat-num" style={{color:"var(--muted)"}}>{points.length}</div>
+            <div className="big-stat-label">總分數</div>
+          </div>
+          <div className="big-stat-item">
+            <div className="big-stat-num" style={{color:"var(--p2)"}}>{stats.p2.pts}</div>
+            <div className="big-stat-label" style={{color:"var(--p2)"}}>{p2Name}</div>
+          </div>
+        </div>
+      </div>
+
+      {[
+        {id:"winner",        label:"Winner",    icon:"⚡", color:"var(--green)"},
+        {id:"ace",           label:"Ace",       icon:"🚀", color:"var(--p2)"},
+        {id:"unforced_error",label:"非受迫失誤", icon:"😬", color:"var(--orange)"},
+        {id:"forced_error",  label:"受迫失誤",   icon:"😤", color:"var(--purple)"},
+        {id:"double_fault",  label:"雙發失誤",   icon:"💥", color:"var(--red)"},
+      ].map(item=>{
+        const v1=stats.p1[item.id], v2=stats.p2[item.id], tot=v1+v2||1;
+        const isOpen = expandedStat===item.id;
+        const hasShotData = item.id !== "double_fault" && item.id !== "ace";
+        return (
+          <div key={item.id} className="stat-card" style={{overflow:"hidden"}}>
+            {/* Header row — tappable */}
+            <div
+              onClick={()=> hasShotData && setExpandedStat(isOpen ? null : item.id)}
+              style={{display:"flex",alignItems:"center",padding:"0.6rem 1rem",borderBottom:`1px solid ${isOpen?"rgba(255,255,255,0.08)":"transparent"}`,cursor:hasShotData?"pointer":"default",userSelect:"none"}}
+            >
+              <span style={{fontSize:"0.7rem",letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase",flex:1}}>
+                {item.icon} {item.label}
+              </span>
+              <span style={{display:"flex",gap:"0.5rem",alignItems:"center"}}>
+                <span style={{fontFamily:"Bebas Neue",fontSize:"1.1rem",color:"var(--p1)"}}>{v1}</span>
+                <span style={{color:"var(--border)"}}>·</span>
+                <span style={{fontFamily:"Bebas Neue",fontSize:"1.1rem",color:"var(--p2)"}}>{v2}</span>
+                {hasShotData && <span style={{color:"var(--muted)",fontSize:"0.75rem",marginLeft:"0.3rem"}}>{isOpen?"▲":"▼"}</span>}
+              </span>
+            </div>
+
+            {/* Summary bar */}
+            <div className="stat-row">
+              <div className="stat-val p1">{v1}</div>
+              <div className="stat-bar-wrap">
+                <div style={{display:"flex",gap:"3px"}}>
+                  <div className="stat-bar-bg" style={{flex:1}}><div className="stat-bar-fill" style={{width:`${Math.round(v1/tot*100)}%`,background:item.color,opacity:0.85}}/></div>
+                  <div className="stat-bar-bg" style={{flex:1}}><div className="stat-bar-fill" style={{width:`${Math.round(v2/tot*100)}%`,background:item.color,opacity:0.5,float:"right"}}/></div>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:"var(--muted)"}}>
+                  <span>{p1Name}</span><span>{p2Name}</span>
+                </div>
+              </div>
+              <div className="stat-val p2">{v2}</div>
+            </div>
+
+            {/* Expanded shot breakdown */}
+            {isOpen && hasShotData && (
+              <div style={{borderTop:"1px solid var(--border)",padding:"0.6rem 1rem 0.8rem"}}>
+                {["p1","p2"].map(p=>{
+                  const breakdown = shotBreakdown(item.id, p);
+                  const pColor = p==="p1" ? "var(--p1)" : "var(--p2)";
+                  const total = breakdown.reduce((a,b)=>a+b[1],0)||1;
+                  return (
+                    <div key={p} style={{marginBottom: p==="p1"?"1rem":0}}>
+                      <div style={{fontSize:"0.7rem",fontWeight:700,color:pColor,marginBottom:"0.5rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
+                        <span style={{width:8,height:8,borderRadius:"50%",background:pColor,display:"inline-block",flexShrink:0}}/>
+                        {pName(p)}
+                        <span style={{color:"var(--muted)",fontWeight:400}}>（{stats[p][item.id]} 次）</span>
+                      </div>
+                      {breakdown.length===0
+                        ? <div style={{fontSize:"0.72rem",color:"var(--muted)",paddingLeft:"1rem"}}>無球種資料</div>
+                        : breakdown.map(([shotId, count])=>{
+                            const sh = SHOT_TYPES.find(x=>x.id===shotId);
+                            const pct = Math.round(count/total*100);
+                            return (
+                              <div key={shotId} style={{display:"flex",alignItems:"center",gap:"0.6rem",marginBottom:"0.4rem"}}>
+                                <span style={{fontSize:"0.95rem",width:"1.4rem",textAlign:"center",flexShrink:0}}>{sh?.icon||"•"}</span>
+                                <div style={{flex:1}}>
+                                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:"0.2rem"}}>
+                                    <span style={{fontSize:"0.75rem",color:"var(--text)"}}>{sh?.label||shotId}</span>
+                                    <span style={{fontSize:"0.72rem",color:"var(--muted)"}}>{count} 次 · {pct}%</span>
+                                  </div>
+                                  <div style={{height:5,background:"#222",borderRadius:3,overflow:"hidden"}}>
+                                    <div style={{height:"100%",width:`${pct}%`,background:item.color,opacity:0.8,borderRadius:3}}/>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Hand stats */}
+      <div className="stat-card">
+        <div className="stat-card-title">正拍 / 反拍 使用次數</div>
+        {["p1","p2"].map(p=>{
+          const tot=stats[p].fh+stats[p].bh||1;
+          return (
+            <div key={p} className="stat-row">
+              <div className="stat-val" style={{color:p==="p1"?"var(--p1)":"var(--p2)",fontSize:"1rem",minWidth:"3.5rem",textAlign:"left"}}>{pName(p)}</div>
+              <div className="stat-bar-wrap">
+                <div style={{display:"flex",gap:"2px"}}>
+                  <div className="stat-bar-bg" style={{flex:stats[p].fh||1}}>
+                    <div className="stat-bar-fill" style={{width:"100%",background:"var(--p1)",opacity:0.7}}/>
+                  </div>
+                  <div className="stat-bar-bg" style={{flex:stats[p].bh||1}}>
+                    <div className="stat-bar-fill" style={{width:"100%",background:"var(--p2)",opacity:0.7}}/>
+                  </div>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:"var(--muted)"}}>
+                  <span style={{color:"var(--p1)"}}>🤚 正拍 {stats[p].fh}</span>
+                  <span style={{color:"var(--p2)"}}>🫱 反拍 {stats[p].bh}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Net / Out stats */}
+      <div className="stat-card">
+        <div className="stat-card-title">掛網 / 出界 統計</div>
+        {["p1","p2"].map(p=>{
+          const tot=stats[p].net+stats[p].out||1;
+          return (
+            <div key={p} className="stat-row">
+              <div className="stat-val" style={{color:p==="p1"?"var(--p1)":"var(--p2)",fontSize:"1rem",minWidth:"3.5rem",textAlign:"left"}}>{pName(p)}</div>
+              <div className="stat-bar-wrap">
+                <div style={{display:"flex",gap:"2px"}}>
+                  <div className="stat-bar-bg" style={{flex:stats[p].net||1}}>
+                    <div className="stat-bar-fill" style={{width:"100%",background:"#ff6b6b",opacity:0.7}}/>
+                  </div>
+                  <div className="stat-bar-bg" style={{flex:stats[p].out||1}}>
+                    <div className="stat-bar-fill" style={{width:"100%",background:"#ffd700",opacity:0.7}}/>
+                  </div>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:"var(--muted)"}}>
+                  <span style={{color:"#ff6b6b"}}>🕸️ 掛網 {stats[p].net}</span>
+                  <span style={{color:"#ffd700"}}>📤 出界 {stats[p].out}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── LOG TAB ────────────────────────────────────────────────────────────────
+  const logTab = (
+    <div className="log-tab">
+      {points.length===0
+        ? <div className="empty-log">尚無記錄</div>
+        : [...points].reverse().map((pt,i)=>{
+            const r=REASON_LIST.find(x=>x.id===pt.reason);
+            const sh=SHOT_TYPES.find(x=>x.id===pt.shot);
+            const snap=pt.snap;
+            const setStr=snap.sets.map(s=>`${s.p1}-${s.p2}`).join(" ");
+            return (
+              <div key={pt.id} className="log-entry">
+                <span className="log-idx">#{points.length-i}</span>
+                <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)}</span>
+                <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
+                {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"🤚正拍":"🫱反拍"}</span>}
+                {sh && <span className="shot-chip">{sh.label}</span>}
+                {pt.error_type && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.45rem",borderRadius:"5px",fontWeight:700,background:pt.error_type==="net"?"rgba(255,107,107,0.15)":"rgba(255,215,0,0.15)",color:pt.error_type==="net"?"#ff6b6b":"#ffd700"}}>{pt.error_type==="net"?"🕸️掛網":"📤出界"}</span>}
+                <span className="log-score">{setStr} {snap.curSet.p1}-{snap.curSet.p2}</span>
+              </div>
+            );
+          })
+      }
+    </div>
+  );
+
+  // ── RENDER ─────────────────────────────────────────────────────────────────
+  return (
+    <div id="app" style={{display:"flex",flexDirection:"column",minHeight:"100vh"}}>
+      {showSides && (
+        <div className="overlay">
+          <div className="overlay-card">
+            <div className="overlay-icon">🔄</div>
+            <div className="overlay-title">換邊</div>
+            <div className="overlay-text">球員換邊，請確認後繼續。</div>
+            <button className="overlay-btn" onClick={()=>setShowSides(false)}>繼續</button>
+          </div>
+        </div>
+      )}
+
+      <div className="scoreboard">
+        <div className="scoreboard-inner">
+          <div className="player-col p1">
+            <div className="player-name p1">
+              {server==="p1"&&<span className="serve-dot"/>}
+              {p1Name}
+            </div>
+            <div className="score-num">{stats.p1.pts}</div>
+            <div className="sets-mini">
+              {score.sets.map((s,i)=><span key={i} className={`set-chip ${s.p1>s.p2?"won":""}`}>{s.p1}</span>)}
+              <span className="set-chip won">{score.curSet.p1}</span>
+            </div>
+          </div>
+          <div className="score-center">
+            {(score.tb||superTB)&&<div className="tiebreak-badge">{superTB?"Super TB":"TB"}</div>}
+            <div className="game-score">{gameScore}</div>
+            <div style={{fontSize:"0.62rem",color:"var(--muted)",marginTop:"0.1rem"}}>第{servePhase}發</div>
+          </div>
+          <div className="player-col p2">
+            <div className="player-name p2">
+              {p2Name}
+              {server==="p2"&&<span className="serve-dot"/>}
+            </div>
+            <div className="score-num">{stats.p2.pts}</div>
+            <div className="sets-mini">
+              {score.sets.map((s,i)=><span key={i} className={`set-chip ${s.p2>s.p1?"won":""}`}>{s.p2}</span>)}
+              <span className="set-chip won">{score.curSet.p2}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="tab-bar">
+        <button className={`tab-btn ${tab==="record"?"active":""}`} onClick={()=>setTab("record")}>記錄</button>
+        <button className={`tab-btn ${tab==="stats"?"active":""}`} onClick={()=>setTab("stats")}>統計</button>
+        <button className={`tab-btn ${tab==="log"?"active":""}`} onClick={()=>setTab("log")}>歷史</button>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto"}}>
+        {tab==="record"&&recordTab}
+        {tab==="stats"&&statsTab}
+        {tab==="log"&&logTab}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
+</script>
+</body>
+</html>
