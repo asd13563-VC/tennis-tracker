@@ -498,7 +498,11 @@ function App() {
 
       {/* Serve bar */}
       <div className="serve-bar">
-        <span className="serve-phase-badge">
+        <span className="serve-phase-badge" style={{
+          background: server==="p1" ? "rgba(245,197,24,0.1)" : "rgba(24,201,245,0.1)",
+          border: server==="p1" ? "1px solid rgba(245,197,24,0.3)" : "1px solid rgba(24,201,245,0.3)",
+          color: server==="p1" ? "var(--p1)" : "var(--p2)"
+        }}>
           <span style={{fontFamily:"Bebas Neue",fontSize:"1rem"}}>{superTB?"Super TB":`第${servePhase}發`}</span>
           &nbsp;{pName(server)} 發球
         </span>
