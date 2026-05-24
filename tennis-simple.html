@@ -313,6 +313,63 @@ function App() {
   const [showSides, setShowSides]   = useState(false);
   const [expandedStat, setExpandedStat] = useState(null);
   const [overTab, setOverTab] = useState("summary");
+  const [importError, setImportError] = useState(null);
+
+  const handleImport = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data.matchInfo || !data.points) throw new Error("格式不正確");
+
+        // Restore names
+        setP1Name(data.matchInfo.p1 || "選手 A");
+        setP2Name(data.matchInfo.p2 || "選手 B");
+
+        // Rebuild points array in internal format
+        // JSON stores human-readable labels; map back to IDs
+        const rebuildPoints = data.points.map((pt, i) => {
+          const actorKey = pt.actor === data.matchInfo.p1 ? "p1" : "p2";
+          const winnerKey = pt.winner === data.matchInfo.p1 ? "p1" : "p2";
+          const shotObj = SHOT_TYPES.find(s => s.label === pt.shot);
+          return {
+            id: i,
+            actor: actorKey,
+            winner: winnerKey,
+            reason: pt.reason,
+            hand: pt.hand === "正拍" || pt.hand === "fh" ? "fh"
+                : pt.hand === "反拍" || pt.hand === "bh" ? "bh" : null,
+            shot: shotObj ? shotObj.id : (pt.shot || null),
+            error_type: pt.errorType === "掛網" ? "net"
+                      : pt.errorType === "出界" ? "out"
+                      : pt.errorType || null,
+            rally_count: pt.rallyCount || 0,
+            snap: { sets:[], curSet:{p1:0,p2:0}, curGame:{p1:0,p2:0}, tb:false,
+                    server:"p1", servePhase:1, superTB:false },
+          };
+        });
+
+        // Rebuild score from sets string e.g. "6-3, 4-6, 6-2"
+        const setsArr = (data.matchInfo.sets||"").split(",").map(s=>{
+          const [a,b] = s.trim().split("-").map(Number);
+          return { p1: isNaN(a)?0:a, p2: isNaN(b)?0:b };
+        }).filter(s=>!isNaN(s.p1));
+
+        const winnerKey = data.matchInfo.winner === data.matchInfo.p1 ? "p1" : "p2";
+
+        setPoints(rebuildPoints);
+        setScore({ sets: setsArr, curSet:{p1:0,p2:0}, curGame:{p1:0,p2:0}, tb:false });
+        setMatchWinner(winnerKey);
+        setOverTab("summary");
+        setImportError(null);
+        setPage("over");
+      } catch(err) {
+        setImportError("讀取失敗：" + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // Pending point being built
   const [pending, setPending] = useState(null);
@@ -473,6 +530,20 @@ function App() {
           <button className={`server-btn p2 ${initSrv==="p2"?"active":""}`} onClick={()=>setInitSrv("p2")}>● {p2Name||"選手 B"}</button>
         </div>
         <button className="start-btn" onClick={startMatch}>開始比賽</button>
+
+        <div className="setup-divider">或</div>
+
+        <label style={{
+          display:"flex",alignItems:"center",justifyContent:"center",gap:"0.6rem",
+          padding:"0.8rem",background:"rgba(61,220,132,0.07)",
+          border:"1px solid rgba(61,220,132,0.3)",borderRadius:12,
+          color:"var(--green)",fontSize:"0.9rem",fontWeight:700,cursor:"pointer"
+        }}>
+          📂 讀取過去比賽記錄
+          <input type="file" accept=".json" style={{display:"none"}}
+            onChange={e=>handleImport(e.target.files[0])}/>
+        </label>
+        {importError && <div style={{color:"var(--red)",fontSize:"0.8rem",textAlign:"center"}}>{importError}</div>}
       </div>
     </div>
   );
@@ -602,6 +673,53 @@ function App() {
               </div>
 
               <button style={{background:"transparent",border:"1px solid var(--border)",borderRadius:10,color:"var(--muted)",padding:"0.6rem 1rem",fontFamily:"inherit",cursor:"pointer",fontSize:"0.85rem"}} onClick={undoLast}>↩ 撤銷最後一分</button>
+
+              {/* Export button */}
+              <button style={{
+                background:"rgba(61,220,132,0.1)",border:"1px solid rgba(61,220,132,0.4)",borderRadius:10,
+                color:"var(--green)",padding:"0.75rem 1rem",fontFamily:"inherit",cursor:"pointer",
+                fontSize:"0.9rem",fontWeight:700,width:"100%"
+              }} onClick={()=>{
+                const date = new Date();
+                const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+                const data = {
+                  matchInfo: {
+                    date: dateStr,
+                    time: date.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}),
+                    p1: p1Name, p2: p2Name,
+                    format: fmt.label,
+                    winner: pName(matchWinner),
+                    sets: score.sets.map(s=>`${s.p1}-${s.p2}`).join(", "),
+                  },
+                  summary: {
+                    p1: { name:p1Name, ...stats.p1 },
+                    p2: { name:p2Name, ...stats.p2 },
+                  },
+                  points: points.map((pt,i)=>({
+                    no: i+1,
+                    server: pName(pt.snap.server),
+                    servePhase: pt.snap.servePhase,
+                    actor: pName(pt.actor),
+                    winner: pName(pt.winner),
+                    reason: pt.reason,
+                    rallyCount: pt.rally_count||0,
+                    hand: pt.hand||"",
+                    shot: pt.shot ? (SHOT_TYPES.find(s=>s.id===pt.shot)?.label||pt.shot) : "",
+                    errorType: pt.error_type||"",
+                    score: `${pt.snap.curSet.p1}-${pt.snap.curSet.p2} (${pt.snap.curGame.p1}-${pt.snap.curGame.p2})`,
+                  }))
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `tennis_${p1Name}_vs_${p2Name}_${dateStr}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}>
+                📥 下載比賽記錄（JSON）
+              </button>
+
               <button className="new-match-btn" style={{width:"100%"}} onClick={()=>setPage("setup")}>新比賽</button>
             </div>
           )}
