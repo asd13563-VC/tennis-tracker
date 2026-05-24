@@ -312,6 +312,7 @@ function App() {
   const [matchWinner, setMatchWinner] = useState(null);
   const [showSides, setShowSides]   = useState(false);
   const [expandedStat, setExpandedStat] = useState(null);
+  const [overTab, setOverTab] = useState("summary");
 
   // Pending point being built
   const [pending, setPending] = useState(null);
@@ -336,7 +337,7 @@ function App() {
     const snap = {sets:score.sets.map(s=>({...s})),curSet:{...score.curSet},curGame:{...score.curGame},tb:score.tb,server,servePhase,superTB};
     const result = advanceScore(score, pointWinner, fmt, superTB);
 
-    const newPt = { id:Date.now(), actor, reason, hand:hand||null, shot:shot||null, error_type:fullPending.error_type||null, winner:pointWinner, snap };
+    const newPt = { id:Date.now(), actor, reason, hand:hand||null, shot:shot||null, error_type:fullPending.error_type||null, rally_count:fullPending.rally_count||0, winner:pointWinner, snap };
     setPoints(prev=>[...prev, newPt]);
     setPending(null);
     setScore(result.newScore);
@@ -355,15 +356,21 @@ function App() {
 
   // Step handlers
   const handleSelectActor = (actor) => {
-    setPending({ actor, reason:null, hand:null, shot:null, error_type:null });
+    setPending(p=>({ ...p, actor, reason:null, hand:null, shot:null, error_type:null, rally_count:null }));
+  };
+
+  const handleSetRallyCount = (count) => {
+    setPending(p=>({ ...p, rally_count:count }));
   };
 
   const handleSelectReason = (reason) => {
     const needsHand = NEEDS_HAND.includes(reason);
     if (!needsHand) {
-      commitPoint({ ...pending, reason, hand:null, shot:null, error_type:null });
+      // double_fault / ace: commit immediately
+      commitPoint({ ...pending, reason, rally_count:pending.rally_count||0, hand:null, shot:null, error_type:null });
     } else {
-      setPending(p=>({...p, reason, hand:null, shot:null, error_type:null}));
+      // go to rally count step next
+      setPending(p=>({...p, reason, rally_count:null, hand:null, shot:null, error_type:null}));
     }
   };
 
@@ -384,9 +391,18 @@ function App() {
     commitPoint({ ...pending, error_type });
   };
 
+  // Go back one step
+  const goBack = () => {
+    if (step==="reason")     setPending(p=>({...p, reason:null, rally_count:null, hand:null, shot:null, error_type:null}));
+    if (step==="rally")      setPending(p=>({...p, reason:null, rally_count:null}));
+    if (step==="hand")       setPending(p=>({...p, rally_count:null, hand:null, shot:null, error_type:null}));
+    if (step==="shot")       setPending(p=>({...p, hand:null, shot:null, error_type:null}));
+    if (step==="error_type") setPending(p=>({...p, shot:null, error_type:null}));
+  };
+
   const handleFault = () => {
-    if (servePhase===1) { setServePhase(2); }
-    else { commitPoint({ actor:server, reason:"double_fault", hand:null, shot:null }); }
+    if (servePhase===1) { setServePhase(2); setPending(null); }
+    else { commitPoint({ rally_count: pending?.rally_count||0, actor:server, reason:"double_fault", hand:null, shot:null, error_type:null }); }
   };
 
   const undoLast = () => {
@@ -417,11 +433,13 @@ function App() {
 
   const gameScore = gameLabel(score.curGame, score.tb||superTB, fmt.noAd);
 
-  // Determine current sub-step
+  // flow: actor → reason → rally_count → hand → shot → error_type
   const step = !pending ? "actor"
+    : !pending.actor ? "actor"
     : !pending.reason ? "reason"
-    : !pending.hand ? "hand"
-    : !pending.shot ? "shot"
+    : (NEEDS_HAND.includes(pending.reason) && pending.rally_count === null) ? "rally"
+    : !pending.hand && NEEDS_HAND.includes(pending.reason) ? "hand"
+    : !pending.shot && NEEDS_HAND.includes(pending.reason) ? "shot"
     : NEEDS_ERROR_TYPE.includes(pending.reason) && !pending.error_type ? "error_type"
     : "done";
 
@@ -463,31 +481,223 @@ function App() {
   if (page==="over") {
     const mw=matchWinner;
     const setsStr=score.sets.map(s=>`${s.p1}–${s.p2}`).join("  ");
+    const overStatCards = [
+      {id:"winner",        label:"Winner",    icon:"⚡", color:"var(--green)"},
+      {id:"ace",           label:"Ace",       icon:"🚀", color:"var(--p2)"},
+      {id:"unforced_error",label:"非受迫失誤", icon:"😬", color:"var(--orange)"},
+      {id:"forced_error",  label:"受迫失誤",   icon:"😤", color:"var(--purple)"},
+      {id:"double_fault",  label:"雙發失誤",   icon:"💥", color:"var(--red)"},
+    ];
+
     return (
-      <div className="match-over">
-        <div style={{fontSize:"3.5rem"}}>🏆</div>
-        <div className="over-title" style={{color:mw==="p1"?"var(--p1)":"var(--p2)"}}>比賽結束</div>
-        <div style={{fontSize:"1.1rem",fontWeight:900,color:mw==="p1"?"var(--p1)":"var(--p2)"}}>{pName(mw)} 獲勝</div>
-        <div style={{color:"var(--muted)",fontSize:"1rem"}}>{setsStr}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem",background:"#161616",border:"1px solid #2a2a2a",borderRadius:14,padding:"1rem",width:"100%",maxWidth:320,marginTop:"0.5rem"}}>
-          {["p1","p2"].map(p=>(
-            <div key={p} style={{textAlign:"center"}}>
-              <div style={{fontSize:"0.72rem",color:"var(--muted)",marginBottom:"0.4rem"}}>{pName(p)}</div>
-              <div style={{fontFamily:"Bebas Neue",fontSize:"1.8rem",color:p==="p1"?"var(--p1)":"var(--p2)"}}>{stats[p].pts}</div>
-              <div style={{fontSize:"0.68rem",color:"var(--muted)"}}>得分</div>
-              <div style={{marginTop:"0.6rem",fontSize:"0.75rem",display:"flex",flexDirection:"column",gap:"0.2rem"}}>
-                <span style={{color:"var(--green)"}}>⚡ {stats[p].winner} Winner</span>
-                <span style={{color:"var(--p2)"}}>🚀 {stats[p].ace} Ace</span>
-                <span style={{color:"var(--orange)"}}>😬 {stats[p].unforced_error} 非受迫</span>
-                <span style={{color:"var(--purple)"}}>😤 {stats[p].forced_error} 受迫</span>
-                <span style={{color:"var(--red)"}}>💥 {stats[p].double_fault} 雙發</span>
-                <span style={{color:"var(--p1)"}}>🤚 {stats[p].fh} 正拍 / {stats[p].bh} 反拍</span>
-              </div>
-            </div>
-          ))}
+      <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:"var(--bg)"}}>
+        {/* Header */}
+        <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"1rem",textAlign:"center"}}>
+          <div style={{fontSize:"2rem"}}>🏆</div>
+          <div style={{fontFamily:"Bebas Neue",fontSize:"2rem",letterSpacing:"0.1em",color:mw==="p1"?"var(--p1)":"var(--p2)"}}>比賽結束</div>
+          <div style={{fontWeight:900,color:mw==="p1"?"var(--p1)":"var(--p2)",fontSize:"1rem"}}>{pName(mw)} 獲勝</div>
+          <div style={{color:"var(--muted)",fontSize:"0.9rem",marginTop:"0.2rem"}}>{setsStr}</div>
         </div>
-        <button style={{background:"transparent",border:"1px solid var(--border)",borderRadius:10,color:"var(--muted)",padding:"0.5rem 1rem",fontFamily:"inherit",cursor:"pointer",fontSize:"0.85rem",marginBottom:"-0.5rem"}} onClick={undoLast}>↩ 撤銷最後一分</button>
-        <button className="new-match-btn" onClick={()=>setPage("setup")}>新比賽</button>
+
+        {/* Tabs */}
+        <div className="tab-bar">
+          <button className={`tab-btn ${overTab==="summary"?"active":""}`} onClick={()=>setOverTab("summary")}>總覽</button>
+          <button className={`tab-btn ${overTab==="stats"?"active":""}`} onClick={()=>setOverTab("stats")}>技術統計</button>
+          <button className={`tab-btn ${overTab==="log"?"active":""}`} onClick={()=>setOverTab("log")}>歷史</button>
+        </div>
+
+        <div style={{flex:1,overflowY:"auto"}}>
+
+          {/* SUMMARY TAB */}
+          {overTab==="summary" && (
+            <div style={{padding:"0.8rem",display:"flex",flexDirection:"column",gap:"0.7rem",maxWidth:500,margin:"0 auto",width:"100%"}}>
+              {/* Points */}
+              <div className="stat-card">
+                <div className="stat-card-title">得分總覽</div>
+                <div className="big-stat-grid">
+                  <div className="big-stat-item">
+                    <div className="big-stat-num" style={{color:"var(--p1)"}}>{stats.p1.pts}</div>
+                    <div className="big-stat-label" style={{color:"var(--p1)"}}>{p1Name}</div>
+                  </div>
+                  <div className="big-stat-item">
+                    <div className="big-stat-num" style={{color:"var(--muted)"}}>{points.length}</div>
+                    <div className="big-stat-label">總分數</div>
+                  </div>
+                  <div className="big-stat-item">
+                    <div className="big-stat-num" style={{color:"var(--p2)"}}>{stats.p2.pts}</div>
+                    <div className="big-stat-label" style={{color:"var(--p2)"}}>{p2Name}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick summary grid */}
+              {overStatCards.map(item=>{
+                const v1=stats.p1[item.id], v2=stats.p2[item.id], tot=v1+v2||1;
+                return (
+                  <div key={item.id} className="stat-card">
+                    <div className="stat-row">
+                      <div className="stat-val p1">{v1}</div>
+                      <div className="stat-bar-wrap">
+                        <div style={{textAlign:"center",fontSize:"0.78rem",marginBottom:"0.3rem",color:item.color}}>{item.icon} {item.label}</div>
+                        <div style={{display:"flex",gap:"3px"}}>
+                          <div className="stat-bar-bg" style={{flex:1}}><div className="stat-bar-fill" style={{width:`${Math.round(v1/tot*100)}%`,background:item.color,opacity:0.85}}/></div>
+                          <div className="stat-bar-bg" style={{flex:1}}><div className="stat-bar-fill" style={{width:`${Math.round(v2/tot*100)}%`,background:item.color,opacity:0.5,float:"right"}}/></div>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:"var(--muted)"}}>
+                          <span>{p1Name}</span><span>{p2Name}</span>
+                        </div>
+                      </div>
+                      <div className="stat-val p2">{v2}</div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Hand */}
+              <div className="stat-card">
+                <div className="stat-card-title">正拍 / 反拍</div>
+                {["p1","p2"].map(p=>(
+                  <div key={p} className="stat-row">
+                    <div style={{color:p==="p1"?"var(--p1)":"var(--p2)",fontSize:"0.9rem",fontWeight:700,minWidth:"3.5rem"}}>{pName(p)}</div>
+                    <div className="stat-bar-wrap">
+                      <div style={{display:"flex",gap:"2px"}}>
+                        <div className="stat-bar-bg" style={{flex:stats[p].fh||1}}><div className="stat-bar-fill" style={{width:"100%",background:"var(--p1)",opacity:0.7}}/></div>
+                        <div className="stat-bar-bg" style={{flex:stats[p].bh||1}}><div className="stat-bar-fill" style={{width:"100%",background:"var(--p2)",opacity:0.7}}/></div>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:"var(--muted)"}}>
+                        <span style={{color:"var(--p1)"}}>🤚 正拍 {stats[p].fh}</span>
+                        <span style={{color:"var(--p2)"}}>🫱 反拍 {stats[p].bh}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Net / Out */}
+              <div className="stat-card">
+                <div className="stat-card-title">掛網 / 出界</div>
+                {["p1","p2"].map(p=>(
+                  <div key={p} className="stat-row">
+                    <div style={{color:p==="p1"?"var(--p1)":"var(--p2)",fontSize:"0.9rem",fontWeight:700,minWidth:"3.5rem"}}>{pName(p)}</div>
+                    <div className="stat-bar-wrap">
+                      <div style={{display:"flex",gap:"2px"}}>
+                        <div className="stat-bar-bg" style={{flex:stats[p].net||1}}><div className="stat-bar-fill" style={{width:"100%",background:"#ff6b6b",opacity:0.7}}/></div>
+                        <div className="stat-bar-bg" style={{flex:stats[p].out||1}}><div className="stat-bar-fill" style={{width:"100%",background:"#ffd700",opacity:0.7}}/></div>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:"var(--muted)"}}>
+                        <span style={{color:"#ff6b6b"}}>🕸️ 掛網 {stats[p].net}</span>
+                        <span style={{color:"#ffd700"}}>📤 出界 {stats[p].out}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button style={{background:"transparent",border:"1px solid var(--border)",borderRadius:10,color:"var(--muted)",padding:"0.6rem 1rem",fontFamily:"inherit",cursor:"pointer",fontSize:"0.85rem"}} onClick={undoLast}>↩ 撤銷最後一分</button>
+              <button className="new-match-btn" style={{width:"100%"}} onClick={()=>setPage("setup")}>新比賽</button>
+            </div>
+          )}
+
+          {/* STATS TAB — expandable breakdown */}
+          {overTab==="stats" && (
+            <div style={{padding:"0.8rem",display:"flex",flexDirection:"column",gap:"0.7rem",maxWidth:500,margin:"0 auto",width:"100%"}}>
+              {overStatCards.filter(item=>item.id!=="ace"&&item.id!=="double_fault").map(item=>{
+                const v1=stats.p1[item.id], v2=stats.p2[item.id], tot=v1+v2||1;
+                const isOpen=expandedStat===item.id;
+                return (
+                  <div key={item.id} className="stat-card">
+                    <div onClick={()=>setExpandedStat(isOpen?null:item.id)}
+                      style={{display:"flex",alignItems:"center",padding:"0.6rem 1rem",borderBottom:`1px solid ${isOpen?"rgba(255,255,255,0.08)":"transparent"}`,cursor:"pointer",userSelect:"none"}}>
+                      <span style={{fontSize:"0.7rem",letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase",flex:1}}>{item.icon} {item.label}</span>
+                      <span style={{display:"flex",gap:"0.5rem",alignItems:"center"}}>
+                        <span style={{fontFamily:"Bebas Neue",fontSize:"1.1rem",color:"var(--p1)"}}>{v1}</span>
+                        <span style={{color:"var(--border)"}}>·</span>
+                        <span style={{fontFamily:"Bebas Neue",fontSize:"1.1rem",color:"var(--p2)"}}>{v2}</span>
+                        <span style={{color:"var(--muted)",fontSize:"0.75rem",marginLeft:"0.3rem"}}>{isOpen?"▲":"▼"}</span>
+                      </span>
+                    </div>
+                    <div className="stat-row">
+                      <div className="stat-val p1">{v1}</div>
+                      <div className="stat-bar-wrap">
+                        <div style={{display:"flex",gap:"3px"}}>
+                          <div className="stat-bar-bg" style={{flex:1}}><div className="stat-bar-fill" style={{width:`${Math.round(v1/tot*100)}%`,background:item.color,opacity:0.85}}/></div>
+                          <div className="stat-bar-bg" style={{flex:1}}><div className="stat-bar-fill" style={{width:`${Math.round(v2/tot*100)}%`,background:item.color,opacity:0.5,float:"right"}}/></div>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:"var(--muted)"}}>
+                          <span>{p1Name}</span><span>{p2Name}</span>
+                        </div>
+                      </div>
+                      <div className="stat-val p2">{v2}</div>
+                    </div>
+                    {isOpen && (
+                      <div style={{borderTop:"1px solid var(--border)",padding:"0.6rem 1rem 0.8rem"}}>
+                        {["p1","p2"].map(p=>{
+                          const breakdown=shotBreakdown(item.id,p);
+                          const pColor=p==="p1"?"var(--p1)":"var(--p2)";
+                          const total=breakdown.reduce((a,b)=>a+b[1],0)||1;
+                          return (
+                            <div key={p} style={{marginBottom:p==="p1"?"1rem":0}}>
+                              <div style={{fontSize:"0.7rem",fontWeight:700,color:pColor,marginBottom:"0.5rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
+                                <span style={{width:8,height:8,borderRadius:"50%",background:pColor,display:"inline-block",flexShrink:0}}/>
+                                {pName(p)}<span style={{color:"var(--muted)",fontWeight:400}}>（{stats[p][item.id]} 次）</span>
+                              </div>
+                              {breakdown.length===0
+                                ? <div style={{fontSize:"0.72rem",color:"var(--muted)",paddingLeft:"1rem"}}>無球種資料</div>
+                                : breakdown.map(([shotId,count])=>{
+                                    const sh=SHOT_TYPES.find(x=>x.id===shotId);
+                                    const pct=Math.round(count/total*100);
+                                    return (
+                                      <div key={shotId} style={{display:"flex",alignItems:"center",gap:"0.6rem",marginBottom:"0.4rem"}}>
+                                        <span style={{fontSize:"0.95rem",width:"1.4rem",textAlign:"center",flexShrink:0}}>{sh?.icon||"•"}</span>
+                                        <div style={{flex:1}}>
+                                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:"0.2rem"}}>
+                                            <span style={{fontSize:"0.75rem",color:"var(--text)"}}>{sh?.label||shotId}</span>
+                                            <span style={{fontSize:"0.72rem",color:"var(--muted)"}}>{count} 次 · {pct}%</span>
+                                          </div>
+                                          <div style={{height:5,background:"#222",borderRadius:3,overflow:"hidden"}}>
+                                            <div style={{height:"100%",width:`${pct}%`,background:item.color,opacity:0.8,borderRadius:3}}/>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                              }
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <button className="new-match-btn" style={{width:"100%"}} onClick={()=>setPage("setup")}>新比賽</button>
+            </div>
+          )}
+
+          {/* LOG TAB */}
+          {overTab==="log" && (
+            <div style={{padding:"0.8rem",maxWidth:500,margin:"0 auto",width:"100%"}}>
+              {[...points].reverse().map((pt,i)=>{
+                const r=REASON_LIST.find(x=>x.id===pt.reason);
+                const sh=SHOT_TYPES.find(x=>x.id===pt.shot);
+                const snap=pt.snap;
+                const setStr=snap.sets.map(s=>`${s.p1}-${s.p2}`).join(" ");
+                return (
+                  <div key={pt.id} className="log-entry">
+                    <span className="log-idx">#{points.length-i}</span>
+                    <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)}</span>
+                    <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
+                    {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"🤚正拍":"🫱反拍"}</span>}
+                    {sh && <span className="shot-chip">{sh.label}</span>}
+                    {pt.error_type && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.45rem",borderRadius:"5px",fontWeight:700,background:pt.error_type==="net"?"rgba(255,107,107,0.15)":"rgba(255,215,0,0.15)",color:pt.error_type==="net"?"#ff6b6b":"#ffd700"}}>{pt.error_type==="net"?"🕸️掛網":"📤出界"}</span>}
+                    <span className="log-score">{setStr} {snap.curSet.p1}-{snap.curSet.p2}</span>
+                  </div>
+                );
+              })}
+              <button className="new-match-btn" style={{width:"100%",marginTop:"0.8rem"}} onClick={()=>setPage("setup")}>新比賽</button>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -512,16 +722,16 @@ function App() {
       </div>
 
       {/* Progress breadcrumb */}
-      {pending && (
+      {pending && pending.actor && (
         <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}>
-          {["選手","結果","正/反拍","球種","掛網/出界"].map((lbl,i)=>{
-            const stepIdx = step==="actor"?0:step==="reason"?1:step==="hand"?2:step==="shot"?3:4;
+          {["選手","結果","來回","正/反拍","球種","掛網/出界"].map((lbl,i)=>{
+            const stepIdx = step==="actor"?0:step==="reason"?1:step==="rally"?2:step==="hand"?3:step==="shot"?4:5;
             return (
               <React.Fragment key={i}>
                 {i>0&&<div style={{flex:1,height:1,background:i<=stepIdx?"var(--p1)":"var(--border)"}}/>}
                 <div style={{
                   width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:"0.65rem",fontWeight:700,flexShrink:0,
+                  fontSize:"0.62rem",fontWeight:700,flexShrink:0,
                   background:i<stepIdx?"var(--p1)":i===stepIdx?"rgba(245,197,24,0.2)":"var(--border)",
                   color:i<=stepIdx?"var(--p1)":"var(--muted)",
                   border:i===stepIdx?"1.5px solid var(--p1)":"1.5px solid transparent"
@@ -535,7 +745,10 @@ function App() {
       {/* STEP: choose actor */}
       {step==="actor" && (
         <div>
-          <div className="section-label">誰有動作？選擇該選手</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"0.4rem"}}>
+            <div className="section-label" style={{margin:0}}>誰有動作？選擇該選手</div>
+            <button onClick={goBack} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:8,color:"var(--muted)",fontSize:"0.78rem",fontFamily:"inherit",cursor:"pointer",padding:"0.3rem 0.7rem"}}>← 上一步</button>
+          </div>
           <div className="winner-row">
             <button className="winner-btn p1" onClick={()=>handleSelectActor("p1")}>
               <span>{p1Name||"選手 A"}</span>
@@ -558,7 +771,9 @@ function App() {
               {pName(pending.actor)}
               <span className="pending-sub">選擇這一分的結果</span>
             </div>
-            <button className="cancel-btn" onClick={resetPending}>取消</button>
+            {pending.rally_count > 0 && <span style={{fontSize:"0.75rem",color:"var(--muted)",marginRight:"0.3rem"}}>🎾 {pending.rally_count}拍</span>}
+            <button className="cancel-btn" onClick={goBack}>← 上一步</button>
+            <button className="cancel-btn" onClick={resetPending}>✕</button>
           </div>
           <div style={{height:"0.6rem"}}/>
           <div className="reason-grid">
@@ -575,6 +790,62 @@ function App() {
         </div>
       )}
 
+      {/* STEP: rally count — after reason */}
+      {step==="rally" && (
+        <div>
+          <div className="pending-header">
+            <div className={`pending-dot ${pending.actor}`}/>
+            <div style={{flex:1}}>
+              <div className="pending-text">{pName(pending.actor)}</div>
+              <div className="pending-tags">
+                <span className="tag filled">{REASON_LIST.find(r=>r.id===pending.reason)?.icon} {REASON_LIST.find(r=>r.id===pending.reason)?.label}</span>
+              </div>
+            </div>
+            <button className="cancel-btn" onClick={goBack}>← 上一步</button>
+            <button className="cancel-btn" onClick={resetPending}>✕</button>
+          </div>
+          <div style={{height:"0.6rem"}}/>
+          <div className="section-label">這一分來回幾拍？</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.5rem",marginBottom:"0.6rem"}}>
+            {[1,2,3,4,5,6,7,8].map(n=>(
+              <button key={n} onClick={()=>handleSetRallyCount(n)}
+                style={{padding:"1rem 0",background:"#181818",border:"1px solid var(--border)",borderRadius:12,
+                  color:"var(--text)",fontFamily:"Bebas Neue",fontSize:"1.6rem",cursor:"pointer",lineHeight:1}}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.5rem",marginBottom:"0.6rem"}}>
+            {[9,10,11,12].map(n=>(
+              <button key={n} onClick={()=>handleSetRallyCount(n)}
+                style={{padding:"1rem 0",background:"#181818",border:"1px solid var(--border)",borderRadius:12,
+                  color:"var(--text)",fontFamily:"Bebas Neue",fontSize:"1.6rem",cursor:"pointer",lineHeight:1}}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem"}}>
+            {[[13,15],[16,20]].map(([a,b],i)=>(
+              <button key={i} onClick={()=>handleSetRallyCount(Math.round((a+b)/2))}
+                style={{padding:"0.75rem",background:"#181818",border:"1px solid rgba(123,156,255,0.25)",borderRadius:12,
+                  color:"#7b9cff",fontFamily:"inherit",fontSize:"0.88rem",fontWeight:700,cursor:"pointer"}}>
+                {a}–{b} 拍
+              </button>
+            ))}
+            <button onClick={()=>handleSetRallyCount(20)}
+              style={{padding:"0.75rem",background:"#181818",border:"1px solid rgba(123,156,255,0.25)",borderRadius:12,
+                color:"#7b9cff",fontFamily:"inherit",fontSize:"0.88rem",fontWeight:700,cursor:"pointer"}}>
+              20+ 拍
+            </button>
+            <button onClick={()=>handleSetRallyCount(0)}
+              style={{padding:"0.75rem",background:"transparent",border:"1px solid var(--border)",borderRadius:12,
+                color:"var(--muted)",fontFamily:"inherit",fontSize:"0.85rem",cursor:"pointer"}}>
+              略過
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* STEP: choose hand */}
       {step==="hand" && (
         <div>
@@ -586,7 +857,8 @@ function App() {
                 <span className={`tag filled`}>{REASON_LIST.find(r=>r.id===pending.reason)?.icon} {REASON_LIST.find(r=>r.id===pending.reason)?.label}</span>
               </div>
             </div>
-            <button className="cancel-btn" onClick={resetPending}>取消</button>
+            <button className="cancel-btn" onClick={goBack}>← 上一步</button>
+            <button className="cancel-btn" onClick={resetPending}>✕</button>
           </div>
           <div style={{height:"0.6rem"}}/>
           <div className="section-label">正拍還是反拍？</div>
@@ -617,7 +889,8 @@ function App() {
                 <span className="tag filled">{pending.hand==="fh"?"🤚 正拍":"🫱 反拍"}</span>
               </div>
             </div>
-            <button className="cancel-btn" onClick={resetPending}>取消</button>
+            <button className="cancel-btn" onClick={goBack}>← 上一步</button>
+            <button className="cancel-btn" onClick={resetPending}>✕</button>
           </div>
           <div style={{height:"0.6rem"}}/>
           <div className="section-label">擊球類型</div>
@@ -645,7 +918,8 @@ function App() {
                 <span className="tag filled">{SHOT_TYPES.find(s=>s.id===pending.shot)?.label}</span>
               </div>
             </div>
-            <button className="cancel-btn" onClick={resetPending}>取消</button>
+            <button className="cancel-btn" onClick={goBack}>← 上一步</button>
+            <button className="cancel-btn" onClick={resetPending}>✕</button>
           </div>
           <div style={{height:"0.6rem"}}/>
           <div className="section-label">失誤原因</div>
@@ -678,6 +952,7 @@ function App() {
               <div key={pt.id} className="log-entry">
                 <span className="log-idx">#{points.length-i}</span>
                 <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)} 得分</span>
+                {pt.rally_count > 0 && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.4rem",borderRadius:"5px",background:"rgba(123,156,255,0.12)",color:"#7b9cff",fontWeight:700}}>🎾{pt.rally_count}</span>}
                 <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
                 {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"正拍":"反拍"}</span>}
                 {sh && <span className="shot-chip">{sh.label}</span>}
@@ -834,6 +1109,48 @@ function App() {
         })}
       </div>
 
+      {/* Rally count stats */}
+      {(() => {
+        const rallyCounts = points.filter(p=>p.rally_count>0).map(p=>p.rally_count);
+        if (rallyCounts.length===0) return null;
+        const avg = (rallyCounts.reduce((a,b)=>a+b,0)/rallyCounts.length).toFixed(1);
+        const max = Math.max(...rallyCounts);
+        const dist = {1:0, "2-4":0, "5-9":0, "10+":0};
+        rallyCounts.forEach(n=>{ if(n===1) dist["1"]++; else if(n<=4) dist["2-4"]++; else if(n<=9) dist["5-9"]++; else dist["10+"]++; });
+        const tot = rallyCounts.length||1;
+        return (
+          <div className="stat-card">
+            <div className="stat-card-title">來回拍數分佈</div>
+            <div style={{display:"flex",justifyContent:"space-around",padding:"0.8rem 1rem",borderBottom:"1px solid #1a1a1a"}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontFamily:"Bebas Neue",fontSize:"1.8rem",color:"var(--p1)"}}>{avg}</div>
+                <div style={{fontSize:"0.62rem",color:"var(--muted)"}}>平均拍數</div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontFamily:"Bebas Neue",fontSize:"1.8rem",color:"var(--green)"}}>{max}</div>
+                <div style={{fontSize:"0.62rem",color:"var(--muted)"}}>最長一分</div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontFamily:"Bebas Neue",fontSize:"1.8rem",color:"var(--p2)"}}>{rallyCounts.length}</div>
+                <div style={{fontSize:"0.62rem",color:"var(--muted)"}}>有記錄分數</div>
+              </div>
+            </div>
+            {Object.entries(dist).map(([label,count])=>{
+              const pct=Math.round(count/tot*100);
+              return (
+                <div key={label} style={{display:"flex",alignItems:"center",gap:"0.7rem",padding:"0.4rem 1rem",borderBottom:"1px solid #1a1a1a"}}>
+                  <span style={{fontSize:"0.78rem",color:"var(--text)",minWidth:"3.5rem"}}>{label} 拍</span>
+                  <div style={{flex:1,height:8,background:"#222",borderRadius:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${pct}%`,background:"var(--p1)",opacity:0.75,borderRadius:4}}/>
+                  </div>
+                  <span style={{fontSize:"0.72rem",color:"var(--muted)",minWidth:"3rem",textAlign:"right"}}>{count} ({pct}%)</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Net / Out stats */}
       <div className="stat-card">
         <div className="stat-card-title">掛網 / 出界 統計</div>
@@ -877,6 +1194,7 @@ function App() {
               <div key={pt.id} className="log-entry">
                 <span className="log-idx">#{points.length-i}</span>
                 <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)}</span>
+                {pt.rally_count > 0 && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.4rem",borderRadius:"5px",background:"rgba(123,156,255,0.12)",color:"#7b9cff",fontWeight:700}}>🎾{pt.rally_count}</span>}
                 <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
                 {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"🤚正拍":"🫱反拍"}</span>}
                 {sh && <span className="shot-chip">{sh.label}</span>}
