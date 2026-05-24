@@ -313,6 +313,8 @@ function App() {
   const [showSides, setShowSides]   = useState(false);
   const [expandedStat, setExpandedStat] = useState(null);
   const [overTab, setOverTab] = useState("summary");
+  const [keyFilter, setKeyFilter] = useState(null); // null = all
+  const [showKeyPanel, setShowKeyPanel] = useState(false);
   const [importError, setImportError] = useState(null);
 
   const handleImport = (file) => {
@@ -386,15 +388,65 @@ function App() {
     setMatchWinner(null); setTab("record"); setPage("match");
   };
 
+  // Classify key point types from snap
+  const classifyKeyPoints = (snap, fmtRef) => {
+    const { curGame, curSet, sets, tb, superTB: sTB, server: srv } = snap;
+    const { games: maxGames, sets: maxSets } = fmtRef;
+    const keys = [];
+
+    // 1. Tiebreak / Super Tiebreak
+    if (sTB) keys.push("super_tb");
+    else if (tb) keys.push("tiebreak");
+
+    if (!tb && !sTB) {
+      const g1 = curGame.p1, g2 = curGame.p2;
+
+      // 2. Deuce+ (both ≥ 3 = 40-40 or later)
+      if (g1 >= 3 && g2 >= 3) keys.push("deuce");
+
+      // 3. Break point / Save point
+      // Break point: returner one point from winning game
+      // server is srv; returner is the other
+      const returner = srv === "p1" ? "p2" : "p1";
+      const serverPts = curGame[srv], returnerPts = curGame[returner];
+      const isBP = (returnerPts >= 3 && returnerPts > serverPts) ||
+                   (returnerPts >= 3 && serverPts >= 3 && returnerPts > serverPts);
+      if (isBP) { keys.push("break_point"); keys.push("save_point"); }
+
+      // 4. Set point / Match point
+      const setsWon = { p1:0, p2:0 };
+      sets.forEach(s => { if(s.p1>s.p2) setsWon.p1++; else setsWon.p2++; });
+      const needed = maxSets === 1 ? 1 : Math.ceil(maxSets/2);
+      const s1 = curSet.p1, s2 = curSet.p2;
+
+      ["p1","p2"].forEach(p => {
+        const opp = p==="p1"?"p2":"p1";
+        const gp = curGame[p], gopp = curGame[opp];
+        const isServingSetPoint = (s1 >= maxGames-1 || s2 >= maxGames-1);
+        // Set point: player leads set and has game point
+        const hasSetPoint = (curSet[p] >= maxGames - 1 && curSet[p] > curSet[opp]) &&
+                            (gp >= 3 && gp > gopp);
+        if (hasSetPoint) keys.push("set_point");
+
+        // Match point: one set away from winning match
+        const hasMatchPoint = (setsWon[p] >= needed - 1) && hasSetPoint;
+        if (hasMatchPoint) keys.push("match_point");
+      });
+    }
+
+    return [...new Set(keys)];
+  };
+
   const commitPoint = (fullPending) => {
     const { actor, reason, hand, shot } = fullPending;
     const reasonObj = REASON_LIST.find(r=>r.id===reason);
     const pointWinner = reasonObj.loser ? (actor==="p1"?"p2":"p1") : actor;
 
     const snap = {sets:score.sets.map(s=>({...s})),curSet:{...score.curSet},curGame:{...score.curGame},tb:score.tb,server,servePhase,superTB};
+    const keyTags = classifyKeyPoints(snap, fmt);
     const result = advanceScore(score, pointWinner, fmt, superTB);
 
-    const newPt = { id:Date.now(), actor, reason, hand:hand||null, shot:shot||null, error_type:fullPending.error_type||null, rally_count:fullPending.rally_count||0, winner:pointWinner, snap };
+    const newPt = { id:Date.now(), actor, reason, hand:hand||null, shot:shot||null, error_type:fullPending.error_type||null, rally_count:fullPending.rally_count||0, winner:pointWinner, snap, keyTags };
     setPoints(prev=>[...prev, newPt]);
     setPending(null);
     setScore(result.newScore);
@@ -556,6 +608,208 @@ function App() {
     filtered.forEach(pt => { counts[pt.shot] = (counts[pt.shot]||0)+1; });
     return Object.entries(counts).sort((a,b)=>b[1]-a[1]);
   };
+  // ── LOG TAB ────────────────────────────────────────────────────────────────
+  const KEY_FILTERS = [
+    { id:"deuce",       label:"Deuce後",   icon:"⚖️", color:"#f5c518" },
+    { id:"break_point", label:"破發點",     icon:"🔱", color:"#ff6b6b" },
+    { id:"save_point",  label:"保發點",     icon:"🛡️", color:"#3ddc84" },
+    { id:"set_point",   label:"盤末點",     icon:"🎯", color:"#b066ff" },
+    { id:"match_point", label:"賽末點",     icon:"🏆", color:"#ffd700" },
+    { id:"tiebreak",    label:"搶七",       icon:"⚡", color:"#18c9f5" },
+    { id:"super_tb",    label:"搶十",       icon:"🚀", color:"#ff8c00" },
+  ];
+
+  const filteredPoints = keyFilter
+    ? points.filter(pt => pt.keyTags && pt.keyTags.includes(keyFilter))
+    : points;
+
+  // Stats for filtered points
+  const filteredStats = (() => {
+    const s = { p1:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0},
+                p2:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0} };
+    filteredPoints.forEach(pt => {
+      s[pt.winner].pts++;
+      if (s[pt.actor][pt.reason] !== undefined) s[pt.actor][pt.reason]++;
+    });
+    return s;
+  })();
+
+  const renderLogEntry = (pt, idx, total) => {
+    const r = REASON_LIST.find(x=>x.id===pt.reason);
+    const sh = SHOT_TYPES.find(x=>x.id===pt.shot);
+    const snap = pt.snap || { sets:[], curSet:{p1:0,p2:0}, curGame:{p1:0,p2:0} };
+    const setStr = (snap.sets||[]).map(s=>`${s.p1}-${s.p2}`).join(" ");
+    const tags = pt.keyTags || [];
+    return (
+      <div key={pt.id} style={{marginBottom:"0.35rem"}}>
+        {tags.length > 0 && (
+          <div style={{display:"flex",gap:"0.3rem",marginBottom:"0.2rem",paddingLeft:"0.2rem",flexWrap:"wrap"}}>
+            {tags.map(tag => {
+              const kf = KEY_FILTERS.find(k=>k.id===tag);
+              return kf ? (
+                <span key={tag} style={{fontSize:"0.6rem",padding:"0.1rem 0.4rem",borderRadius:20,
+                  background:`${kf.color}18`,color:kf.color,border:`1px solid ${kf.color}44`,fontWeight:700}}>
+                  {kf.icon} {kf.label}
+                </span>
+              ) : null;
+            })}
+          </div>
+        )}
+        <div className="log-entry">
+          <span className="log-idx">#{idx}</span>
+          <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)}</span>
+          {pt.rally_count > 0 && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.4rem",borderRadius:"5px",background:"rgba(123,156,255,0.12)",color:"#7b9cff",fontWeight:700}}>🎾{pt.rally_count}</span>}
+          <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
+          {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"🤚正拍":"🫱反拍"}</span>}
+          {sh && <span className="shot-chip">{sh.label}</span>}
+          {pt.error_type && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.45rem",borderRadius:"5px",fontWeight:700,background:pt.error_type==="net"?"rgba(255,107,107,0.15)":"rgba(255,215,0,0.15)",color:pt.error_type==="net"?"#ff6b6b":"#ffd700"}}>{pt.error_type==="net"?"🕸️掛網":"📤出界"}</span>}
+          <span className="log-score">{setStr} {snap.curSet.p1}-{snap.curSet.p2}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const logTab = (
+    <div className="log-tab">
+
+      {/* 關鍵分分析按鈕 */}
+      <button onClick={()=>setShowKeyPanel(p=>!p)} style={{
+        width:"100%",marginBottom:"0.6rem",padding:"0.75rem",
+        background: showKeyPanel ? "rgba(245,197,24,0.15)" : "rgba(245,197,24,0.07)",
+        border:"1px solid rgba(245,197,24,0.4)",borderRadius:12,
+        color:"var(--p1)",fontFamily:"inherit",fontSize:"0.9rem",fontWeight:700,
+        cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"
+      }}>
+        <span>🔍 關鍵分分析</span>
+        <span>{showKeyPanel ? "▲ 收起" : "▼ 展開"}</span>
+      </button>
+
+      {/* 關鍵分分析面板 */}
+      {showKeyPanel && (
+        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,marginBottom:"0.8rem",overflow:"hidden"}}>
+          {KEY_FILTERS.map(kf => {
+            const kpts = points.filter(pt=>pt.keyTags&&pt.keyTags.includes(kf.id));
+            const cnt = kpts.length;
+            const kStats = { p1:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0},
+                             p2:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0} };
+            kpts.forEach(pt => {
+              if(pt.winner) kStats[pt.winner].pts++;
+              if(pt.actor && kStats[pt.actor][pt.reason]!==undefined) kStats[pt.actor][pt.reason]++;
+            });
+            return (
+              <div key={kf.id} style={{borderBottom:"1px solid var(--border)",padding:"0.8rem 1rem"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom: cnt>0 ? "0.6rem" : 0}}>
+                  <span style={{fontWeight:700,color:kf.color,fontSize:"0.88rem"}}>{kf.icon} {kf.label}</span>
+                  <span style={{fontFamily:"Bebas Neue",fontSize:"1.1rem",color: cnt>0 ? kf.color : "var(--muted)"}}>{cnt} 分</span>
+                </div>
+                {cnt > 0 && (
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem"}}>
+                    {["p1","p2"].map(p=>(
+                      <div key={p} style={{background:"#1a1a1a",borderRadius:10,padding:"0.6rem",textAlign:"center"}}>
+                        <div style={{fontSize:"0.68rem",color:p==="p1"?"var(--p1)":"var(--p2)",fontWeight:700,marginBottom:"0.3rem"}}>{pName(p)}</div>
+                        <div style={{fontFamily:"Bebas Neue",fontSize:"2rem",lineHeight:1,color:p==="p1"?"var(--p1)":"var(--p2)"}}>{kStats[p].pts}</div>
+                        <div style={{fontSize:"0.6rem",color:"var(--muted)",marginBottom:"0.4rem"}}>得分 / {cnt} 分</div>
+                        <div style={{fontSize:"0.68rem",display:"flex",flexDirection:"column",gap:"0.15rem"}}>
+                          {kStats[p].winner>0 && <span style={{color:"var(--green)"}}>⚡ {kStats[p].winner} Winner</span>}
+                          {kStats[p].ace>0 && <span style={{color:"var(--p2)"}}>🚀 {kStats[p].ace} Ace</span>}
+                          {kStats[p].unforced_error>0 && <span style={{color:"var(--orange)"}}>😬 {kStats[p].unforced_error} 非受迫</span>}
+                          {kStats[p].forced_error>0 && <span style={{color:"var(--purple)"}}>😤 {kStats[p].forced_error} 受迫</span>}
+                          {kStats[p].double_fault>0 && <span style={{color:"var(--red)"}}>💥 {kStats[p].double_fault} 雙發</span>}
+                          {kStats[p].winner===0&&kStats[p].ace===0&&kStats[p].unforced_error===0&&kStats[p].forced_error===0&&kStats[p].double_fault===0 && <span style={{color:"var(--muted)"}}>—</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {cnt===0 && <div style={{fontSize:"0.75rem",color:"var(--muted)"}}>本場無此類型</div>}
+              </div>
+            );
+          })}
+          {/* 篩選按鈕 */}
+          <div style={{padding:"0.7rem 1rem"}}>
+            <div style={{fontSize:"0.68rem",color:"var(--muted)",marginBottom:"0.4rem",letterSpacing:"0.08em"}}>點選篩選歷史記錄</div>
+            <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
+              <button onClick={()=>setKeyFilter(null)}
+                style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                  background:!keyFilter?"var(--p1)":"transparent",color:!keyFilter?"#000":"var(--muted)",
+                  border:!keyFilter?"none":"1px solid var(--border)"}}>
+                全部
+              </button>
+              {KEY_FILTERS.map(kf=>{
+                const cnt=points.filter(pt=>pt.keyTags&&pt.keyTags.includes(kf.id)).length;
+                if(cnt===0) return null;
+                return (
+                  <button key={kf.id} onClick={()=>setKeyFilter(keyFilter===kf.id?null:kf.id)}
+                    style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                      background:keyFilter===kf.id?kf.color:"transparent",
+                      color:keyFilter===kf.id?"#000":kf.color,
+                      border:`1px solid ${kf.color}66`}}>
+                    {kf.icon} {kf.label} ({cnt})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filter chips row (always visible) */}
+      <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginBottom:"0.6rem"}}>
+        <button onClick={()=>setKeyFilter(null)}
+          style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+            background:!keyFilter?"var(--p1)":"transparent",
+            color:!keyFilter?"#000":"var(--muted)",
+            border:!keyFilter?"none":"1px solid var(--border)"}}>
+          全部 ({points.length})
+        </button>
+        {KEY_FILTERS.map(kf => {
+          const cnt = points.filter(pt=>pt.keyTags&&pt.keyTags.includes(kf.id)).length;
+          if (cnt===0) return null;
+          return (
+            <button key={kf.id} onClick={()=>setKeyFilter(keyFilter===kf.id?null:kf.id)}
+              style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                background:keyFilter===kf.id?kf.color:"transparent",
+                color:keyFilter===kf.id?"#000":kf.color,
+                border:`1px solid ${kf.color}66`}}>
+              {kf.icon} {kf.label} ({cnt})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Mini stats for filtered view */}
+      {keyFilter && filteredPoints.length > 0 && (
+        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"0.7rem 1rem",marginBottom:"0.6rem"}}>
+          <div style={{fontSize:"0.68rem",color:"var(--muted)",marginBottom:"0.5rem",textTransform:"uppercase",letterSpacing:"0.1em"}}>
+            {KEY_FILTERS.find(k=>k.id===keyFilter)?.icon} {KEY_FILTERS.find(k=>k.id===keyFilter)?.label} — {filteredPoints.length} 分
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem"}}>
+            {["p1","p2"].map(p=>(
+              <div key={p} style={{textAlign:"center"}}>
+                <div style={{fontSize:"0.72rem",color:p==="p1"?"var(--p1)":"var(--p2)",fontWeight:700,marginBottom:"0.3rem"}}>{pName(p)}</div>
+                <div style={{fontFamily:"Bebas Neue",fontSize:"1.6rem",color:p==="p1"?"var(--p1)":"var(--p2)"}}>{filteredStats[p].pts}</div>
+                <div style={{fontSize:"0.62rem",color:"var(--muted)"}}>得分</div>
+                <div style={{marginTop:"0.3rem",fontSize:"0.7rem",display:"flex",flexDirection:"column",gap:"0.15rem"}}>
+                  <span style={{color:"var(--green)"}}>⚡{filteredStats[p].winner}W 🚀{filteredStats[p].ace}Ace</span>
+                  <span style={{color:"var(--orange)"}}>😬{filteredStats[p].unforced_error} 😤{filteredStats[p].forced_error}</span>
+                  <span style={{color:"var(--red)"}}>💥{filteredStats[p].double_fault}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {filteredPoints.length===0
+        ? <div className="empty-log">{keyFilter?"此類型無記錄":"尚無記錄"}</div>
+        : [...filteredPoints].reverse().map((pt,i) => {
+            const originalIdx = points.indexOf(pt) + 1;
+            return renderLogEntry(pt, originalIdx, filteredPoints.length);
+          })
+      }
+    </div>
+  );
+
   // ── MATCH OVER ─────────────────────────────────────────────────────────────
   if (page==="over") {
     const mw=matchWinner;
@@ -803,23 +1057,113 @@ function App() {
           {/* LOG TAB */}
           {overTab==="log" && (
             <div style={{padding:"0.8rem",maxWidth:500,margin:"0 auto",width:"100%"}}>
-              {[...points].reverse().map((pt,i)=>{
-                const r=REASON_LIST.find(x=>x.id===pt.reason);
-                const sh=SHOT_TYPES.find(x=>x.id===pt.shot);
-                const snap=pt.snap;
-                const setStr=snap.sets.map(s=>`${s.p1}-${s.p2}`).join(" ");
-                return (
-                  <div key={pt.id} className="log-entry">
-                    <span className="log-idx">#{points.length-i}</span>
-                    <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)}</span>
-                    <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
-                    {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"🤚正拍":"🫱反拍"}</span>}
-                    {sh && <span className="shot-chip">{sh.label}</span>}
-                    {pt.error_type && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.45rem",borderRadius:"5px",fontWeight:700,background:pt.error_type==="net"?"rgba(255,107,107,0.15)":"rgba(255,215,0,0.15)",color:pt.error_type==="net"?"#ff6b6b":"#ffd700"}}>{pt.error_type==="net"?"🕸️掛網":"📤出界"}</span>}
-                    <span className="log-score">{setStr} {snap.curSet.p1}-{snap.curSet.p2}</span>
+
+              {/* 關鍵分分析按鈕 */}
+              <button onClick={()=>setShowKeyPanel(p=>!p)} style={{
+                width:"100%",marginBottom:"0.6rem",padding:"0.75rem",
+                background: showKeyPanel ? "rgba(245,197,24,0.15)" : "rgba(245,197,24,0.07)",
+                border:"1px solid rgba(245,197,24,0.4)",borderRadius:12,
+                color:"var(--p1)",fontFamily:"inherit",fontSize:"0.9rem",fontWeight:700,
+                cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"
+              }}>
+                <span>🔍 關鍵分分析</span>
+                <span>{showKeyPanel ? "▲ 收起" : "▼ 展開"}</span>
+              </button>
+
+              {/* 關鍵分分析面板 */}
+              {showKeyPanel && (
+                <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,marginBottom:"0.8rem",overflow:"hidden"}}>
+                  {KEY_FILTERS.map(kf => {
+                    const kpts = points.filter(pt=>pt.keyTags&&pt.keyTags.includes(kf.id));
+                    const cnt = kpts.length;
+                    const kStats = { p1:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0},
+                                     p2:{pts:0,winner:0,unforced_error:0,forced_error:0,double_fault:0,ace:0} };
+                    kpts.forEach(pt => {
+                      if(pt.winner) kStats[pt.winner].pts++;
+                      if(pt.actor && kStats[pt.actor][pt.reason]!==undefined) kStats[pt.actor][pt.reason]++;
+                    });
+                    return (
+                      <div key={kf.id} style={{borderBottom:"1px solid var(--border)",padding:"0.8rem 1rem"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:cnt>0?"0.6rem":0}}>
+                          <span style={{fontWeight:700,color:kf.color,fontSize:"0.88rem"}}>{kf.icon} {kf.label}</span>
+                          <span style={{fontFamily:"Bebas Neue",fontSize:"1.1rem",color:cnt>0?kf.color:"var(--muted)"}}>{cnt} 分</span>
+                        </div>
+                        {cnt > 0 && (
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem"}}>
+                            {["p1","p2"].map(p=>(
+                              <div key={p} style={{background:"#1a1a1a",borderRadius:10,padding:"0.6rem",textAlign:"center"}}>
+                                <div style={{fontSize:"0.68rem",color:p==="p1"?"var(--p1)":"var(--p2)",fontWeight:700,marginBottom:"0.3rem"}}>{pName(p)}</div>
+                                <div style={{fontFamily:"Bebas Neue",fontSize:"2rem",lineHeight:1,color:p==="p1"?"var(--p1)":"var(--p2)"}}>{kStats[p].pts}</div>
+                                <div style={{fontSize:"0.6rem",color:"var(--muted)",marginBottom:"0.4rem"}}>得分 / {cnt} 分</div>
+                                <div style={{fontSize:"0.68rem",display:"flex",flexDirection:"column",gap:"0.15rem"}}>
+                                  {kStats[p].winner>0&&<span style={{color:"var(--green)"}}>⚡ {kStats[p].winner} Winner</span>}
+                                  {kStats[p].ace>0&&<span style={{color:"var(--p2)"}}>🚀 {kStats[p].ace} Ace</span>}
+                                  {kStats[p].unforced_error>0&&<span style={{color:"var(--orange)"}}>😬 {kStats[p].unforced_error} 非受迫</span>}
+                                  {kStats[p].forced_error>0&&<span style={{color:"var(--purple)"}}>😤 {kStats[p].forced_error} 受迫</span>}
+                                  {kStats[p].double_fault>0&&<span style={{color:"var(--red)"}}>💥 {kStats[p].double_fault} 雙發</span>}
+                                  {kStats[p].winner===0&&kStats[p].ace===0&&kStats[p].unforced_error===0&&kStats[p].forced_error===0&&kStats[p].double_fault===0&&<span style={{color:"var(--muted)"}}>—</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {cnt===0&&<div style={{fontSize:"0.75rem",color:"var(--muted)"}}>本場無此類型</div>}
+                      </div>
+                    );
+                  })}
+                  <div style={{padding:"0.7rem 1rem"}}>
+                    <div style={{fontSize:"0.68rem",color:"var(--muted)",marginBottom:"0.4rem",letterSpacing:"0.08em"}}>點選篩選歷史記錄</div>
+                    <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
+                      <button onClick={()=>setKeyFilter(null)}
+                        style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                          background:!keyFilter?"var(--p1)":"transparent",color:!keyFilter?"#000":"var(--muted)",
+                          border:!keyFilter?"none":"1px solid var(--border)"}}>全部</button>
+                      {KEY_FILTERS.map(kf=>{
+                        const cnt=points.filter(pt=>pt.keyTags&&pt.keyTags.includes(kf.id)).length;
+                        if(cnt===0) return null;
+                        return (
+                          <button key={kf.id} onClick={()=>setKeyFilter(keyFilter===kf.id?null:kf.id)}
+                            style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                              background:keyFilter===kf.id?kf.color:"transparent",
+                              color:keyFilter===kf.id?"#000":kf.color,
+                              border:`1px solid ${kf.color}66`}}>
+                            {kf.icon} {kf.label} ({cnt})
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                );
-              })}
+                </div>
+              )}
+
+              {/* Filter chips */}
+              <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginBottom:"0.6rem"}}>
+                <button onClick={()=>setKeyFilter(null)}
+                  style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                    background:!keyFilter?"var(--p1)":"transparent",
+                    color:!keyFilter?"#000":"var(--muted)",
+                    border:!keyFilter?"none":"1px solid var(--border)"}}>
+                  全部 ({points.length})
+                </button>
+                {KEY_FILTERS.map(kf => {
+                  const cnt = points.filter(pt=>pt.keyTags&&pt.keyTags.includes(kf.id)).length;
+                  if (cnt===0) return null;
+                  return (
+                    <button key={kf.id} onClick={()=>setKeyFilter(keyFilter===kf.id?null:kf.id)}
+                      style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                        background:keyFilter===kf.id?kf.color:"transparent",
+                        color:keyFilter===kf.id?"#000":kf.color,
+                        border:`1px solid ${kf.color}66`}}>
+                      {kf.icon} {kf.label} ({cnt})
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filteredPoints.length===0
+                ? <div className="empty-log">此類型無記錄</div>
+                : [...filteredPoints].reverse().map((pt)=>renderLogEntry(pt, points.indexOf(pt)+1, filteredPoints.length))
+              }
               <button className="new-match-btn" style={{width:"100%",marginTop:"0.8rem"}} onClick={()=>setPage("setup")}>新比賽</button>
             </div>
           )}
@@ -1295,33 +1639,6 @@ function App() {
           );
         })}
       </div>
-    </div>
-  );
-
-  // ── LOG TAB ────────────────────────────────────────────────────────────────
-  const logTab = (
-    <div className="log-tab">
-      {points.length===0
-        ? <div className="empty-log">尚無記錄</div>
-        : [...points].reverse().map((pt,i)=>{
-            const r=REASON_LIST.find(x=>x.id===pt.reason);
-            const sh=SHOT_TYPES.find(x=>x.id===pt.shot);
-            const snap=pt.snap;
-            const setStr=snap.sets.map(s=>`${s.p1}-${s.p2}`).join(" ");
-            return (
-              <div key={pt.id} className="log-entry">
-                <span className="log-idx">#{points.length-i}</span>
-                <span className={`log-winner ${pt.winner}`}>{pName(pt.winner)}</span>
-                {pt.rally_count > 0 && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.4rem",borderRadius:"5px",background:"rgba(123,156,255,0.12)",color:"#7b9cff",fontWeight:700}}>🎾{pt.rally_count}</span>}
-                <span className={`reason-chip ${pt.reason}`}>{r?.icon} {r?.label}</span>
-                {pt.hand && <span className="hand-chip">{pt.hand==="fh"?"🤚正拍":"🫱反拍"}</span>}
-                {sh && <span className="shot-chip">{sh.label}</span>}
-                {pt.error_type && <span style={{fontSize:"0.68rem",padding:"0.15rem 0.45rem",borderRadius:"5px",fontWeight:700,background:pt.error_type==="net"?"rgba(255,107,107,0.15)":"rgba(255,215,0,0.15)",color:pt.error_type==="net"?"#ff6b6b":"#ffd700"}}>{pt.error_type==="net"?"🕸️掛網":"📤出界"}</span>}
-                <span className="log-score">{setStr} {snap.curSet.p1}-{snap.curSet.p2}</span>
-              </div>
-            );
-          })
-      }
     </div>
   );
 
