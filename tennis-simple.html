@@ -502,7 +502,8 @@ function App() {
 
   // Go back one step
   const goBack = () => {
-    if (step==="reason")     setPending(p=>({...p, reason:null, rally_count:null, hand:null, shot:null, error_type:null}));
+    if (step==="actor")      { setPending(null); if(servePhase===2) setServePhase(1); }
+    if (step==="reason")     setPending(p=>({...p, actor:null, reason:null, rally_count:null, hand:null, shot:null, error_type:null}));
     if (step==="rally")      setPending(p=>({...p, reason:null, rally_count:null}));
     if (step==="hand")       setPending(p=>({...p, rally_count:null, hand:null, shot:null, error_type:null}));
     if (step==="shot")       setPending(p=>({...p, hand:null, shot:null, error_type:null}));
@@ -1192,7 +1193,7 @@ function App() {
       </div>
 
       {/* Progress breadcrumb */}
-      {pending && pending.actor && (
+      {pending && (
         <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}>
           {["選手","結果","來回","正/反拍","球種","掛網/出界"].map((lbl,i)=>{
             const stepIdx = step==="actor"?0:step==="reason"?1:step==="rally"?2:step==="hand"?3:step==="shot"?4:5;
