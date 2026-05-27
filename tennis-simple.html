@@ -317,6 +317,7 @@ function App() {
   const [overTab, setOverTab] = useState("summary");
   const [keyFilter, setKeyFilter] = useState(null); // null = all
   const [showKeyPanel, setShowKeyPanel] = useState(false);
+  const [rallyFilter, setRallyFilter] = useState(null); // null=all
   const [importError, setImportError] = useState(null);
 
   const handleImport = (file) => {
@@ -622,9 +623,20 @@ function App() {
     { id:"super_tb",    label:"搶十",       icon:"🚀", color:"#ff8c00" },
   ];
 
-  const filteredPoints = keyFilter
-    ? points.filter(pt => pt.keyTags && pt.keyTags.includes(keyFilter))
-    : points;
+  const RALLY_FILTERS = [
+    { id:"r1",    label:"發球得分",   desc:"1拍",      min:1,  max:1   },
+    { id:"r1_3",  label:"3拍內",     desc:"1–3拍",    min:1,  max:3   },
+    { id:"r4_6",  label:"4–6拍",    desc:"4–6拍",    min:4,  max:6   },
+    { id:"r7_9",  label:"7–9拍",    desc:"7–9拍",    min:7,  max:9   },
+    { id:"r10p",  label:"10拍以上", desc:"10拍+",    min:10, max:999  },
+  ];
+
+  const filteredPoints = points.filter(pt => {
+    const keyOk = !keyFilter || (pt.keyTags && pt.keyTags.includes(keyFilter));
+    const rf = rallyFilter ? RALLY_FILTERS.find(r=>r.id===rallyFilter) : null;
+    const rallyOk = !rf || (pt.rally_count >= rf.min && pt.rally_count <= rf.max);
+    return keyOk && rallyOk;
+  });
 
   // Stats for filtered points
   const filteredStats = (() => {
@@ -780,11 +792,39 @@ function App() {
         })}
       </div>
 
+      {/* Rally filter chips */}
+      <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginBottom:"0.6rem"}}>
+        <span style={{fontSize:"0.68rem",color:"var(--muted)",alignSelf:"center",marginRight:"0.2rem"}}>🎾 來回</span>
+        <button onClick={()=>setRallyFilter(null)}
+          style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+            background:!rallyFilter?"#18c9f5":"transparent",
+            color:!rallyFilter?"#000":"#18c9f5",
+            border:!rallyFilter?"none":"1px solid #18c9f566"}}>
+          全部
+        </button>
+        {RALLY_FILTERS.map(rf => {
+          const cnt = points.filter(pt=>pt.rally_count>=rf.min&&pt.rally_count<=rf.max).length;
+          if (cnt===0) return null;
+          return (
+            <button key={rf.id} onClick={()=>setRallyFilter(rallyFilter===rf.id?null:rf.id)}
+              style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                background:rallyFilter===rf.id?"#18c9f5":"transparent",
+                color:rallyFilter===rf.id?"#000":"#18c9f5",
+                border:"1px solid #18c9f566"}}>
+              {rf.label} ({cnt})
+            </button>
+          );
+        })}
+      </div>
+
       {/* Mini stats for filtered view */}
-      {keyFilter && filteredPoints.length > 0 && (
+      {(keyFilter || rallyFilter) && filteredPoints.length > 0 && (
         <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"0.7rem 1rem",marginBottom:"0.6rem"}}>
           <div style={{fontSize:"0.68rem",color:"var(--muted)",marginBottom:"0.5rem",textTransform:"uppercase",letterSpacing:"0.1em"}}>
-            {KEY_FILTERS.find(k=>k.id===keyFilter)?.icon} {KEY_FILTERS.find(k=>k.id===keyFilter)?.label} — {filteredPoints.length} 分
+            {keyFilter && `${KEY_FILTERS.find(k=>k.id===keyFilter)?.icon} ${KEY_FILTERS.find(k=>k.id===keyFilter)?.label}`}
+            {keyFilter && rallyFilter && " · "}
+            {rallyFilter && `🎾 ${RALLY_FILTERS.find(r=>r.id===rallyFilter)?.desc}`}
+            {" "} — {filteredPoints.length} 分
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem"}}>
             {["p1","p2"].map(p=>(
@@ -804,7 +844,7 @@ function App() {
       )}
 
       {filteredPoints.length===0
-        ? <div className="empty-log">{keyFilter?"此類型無記錄":"尚無記錄"}</div>
+        ? <div className="empty-log">{(keyFilter||rallyFilter)?"此篩選條件無記錄":"尚無記錄"}</div>
         : [...filteredPoints].reverse().map((pt,i) => {
             const originalIdx = points.indexOf(pt) + 1;
             return renderLogEntry(pt, originalIdx, filteredPoints.length);
@@ -1163,8 +1203,33 @@ function App() {
                 })}
               </div>
 
+              {/* Rally filter chips */}
+              <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginBottom:"0.6rem"}}>
+                <span style={{fontSize:"0.68rem",color:"var(--muted)",alignSelf:"center",marginRight:"0.2rem"}}>🎾 來回</span>
+                <button onClick={()=>setRallyFilter(null)}
+                  style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                    background:!rallyFilter?"#18c9f5":"transparent",
+                    color:!rallyFilter?"#000":"#18c9f5",
+                    border:!rallyFilter?"none":"1px solid #18c9f566"}}>
+                  全部
+                </button>
+                {RALLY_FILTERS.map(rf => {
+                  const cnt = points.filter(pt=>pt.rally_count>=rf.min&&pt.rally_count<=rf.max).length;
+                  if (cnt===0) return null;
+                  return (
+                    <button key={rf.id} onClick={()=>setRallyFilter(rallyFilter===rf.id?null:rf.id)}
+                      style={{fontSize:"0.72rem",padding:"0.3rem 0.7rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                        background:rallyFilter===rf.id?"#18c9f5":"transparent",
+                        color:rallyFilter===rf.id?"#000":"#18c9f5",
+                        border:"1px solid #18c9f566"}}>
+                      {rf.label} ({cnt})
+                    </button>
+                  );
+                })}
+              </div>
+
               {filteredPoints.length===0
-                ? <div className="empty-log">此類型無記錄</div>
+                ? <div className="empty-log">{(keyFilter||rallyFilter)?"此篩選條件無記錄":"尚無記錄"}</div>
                 : [...filteredPoints].reverse().map((pt)=>renderLogEntry(pt, points.indexOf(pt)+1, filteredPoints.length))
               }
               <button className="new-match-btn" style={{width:"100%",marginTop:"0.8rem"}} onClick={()=>setPage("setup")}>新比賽</button>
