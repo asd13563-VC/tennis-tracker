@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>🎾 網球課程管理</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#09090b;color:#e4e4e7;font-family:-apple-system,'PingFang TC','Helvetica Neue',sans-serif;min-height:100vh;}
+button{font-family:inherit;cursor:pointer;border:none;outline:none;}
+input{font-family:inherit;outline:none;}
+.page{display:none;min-height:100vh;padding-bottom:60px;}
+.page.active{display:block;}
+.sticky-header{position:sticky;top:0;z-index:10;background:linear-gradient(135deg,#18181b,#1c1917);border-bottom:1px solid #27272a;padding:14px 16px;display:flex;align-items:center;gap:10px;}
+.card{background:#18181b;border:1px solid #27272a;border-radius:16px;padding:16px;margin-bottom:12px;}
+.badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600;display:inline-block;}
+.bg{background:rgba(16,185,129,0.15);color:#4ade80;border:1px solid rgba(16,185,129,0.3);}
+.br{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);}
+.bb{background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);}
+.bx{background:rgba(63,63,70,0.5);color:#a1a1aa;border:1px solid rgba(63,63,70,0.4);}
+.btn{border:none;border-radius:10px;font-weight:600;cursor:pointer;font-family:inherit;}
+.blue{background:#2563eb;color:#fff;}
+.green{background:#16a34a;color:#fff;}
+.gray{background:#27272a;color:#a1a1aa;}
+.red{background:#7f1d1d;color:#fca5a5;}
+.sm{padding:6px 12px;font-size:12px;}
+.md{padding:8px 14px;font-size:13px;}
+.full{width:100%;padding:13px;font-size:15px;border-radius:12px;}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;align-items:flex-end;justify-content:center;}
+.overlay.open{display:flex;}
+.sheet{background:#1c1c1e;border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px 40px;max-height:88vh;overflow-y:auto;}
+.f{margin-top:12px;}
+.f label{display:block;font-size:12px;color:#71717a;margin-bottom:4px;}
+.f input{width:100%;background:#27272a;border:1px solid #3f3f46;border-radius:10px;padding:10px 12px;color:#e4e4e7;font-size:14px;}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;font-size:13px;}
+.lb{color:#71717a;font-size:11px;margin-bottom:3px;}
+.lr{display:flex;align-items:center;gap:12px;background:#18181b;border:1px solid #27272a;border-radius:12px;padding:12px 14px;margin-bottom:8px;}
+.nb{width:30px;height:30px;border-radius:8px;background:#27272a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#71717a;flex-shrink:0;}
+</style>
+</head>
+<body>
+<div id="page-list" class="page active">
+  <div class="sticky-header">
+    <div style="flex:1">
+      <div style="font-size:18px;font-weight:700">🎾 網球課程管理</div>
+      <div style="font-size:12px;color:#71717a;margin-top:2px" id="sub"></div>
+    </div>
+    <button class="btn green md" onclick="openAddStudent()">+ 新增學員</button>
+  </div>
+  <div style="padding:16px" id="list-body"></div>
+</div>
+
+<div id="page-detail" class="page">
+  <div class="sticky-header">
+    <button onclick="goList()" style="background:none;color:#a1a1aa;font-size:28px;padding:0 6px 0 0;line-height:1">&#8249;</button>
+    <div style="flex:1;font-size:18px;font-weight:700" id="dtitle"></div>
+    <button class="btn blue md" onclick="openAddLesson()">+ 新增課堂</button>
+  </div>
+  <div style="padding:16px" id="detail-body"></div>
+</div>
+
+<div class="overlay" id="m-lesson">
+  <div class="sheet">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <span style="font-weight:700;font-size:17px">新增課堂</span>
+      <button onclick="cm('m-lesson')" style="background:#27272a;color:#a1a1aa;border-radius:99px;width:28px;height:28px;font-size:15px">&#10005;</button>
+    </div>
+    <div class="f"><label>日期（如 5/30）</label><input id="ld" placeholder="5/30"></div>
+    <div class="f"><label>時段（如 8-9）</label><input id="lt" placeholder="8-9"></div>
+    <div class="f" id="lfw"><label>場地費（可留空）</label><input id="lf" placeholder="140" type="number" inputmode="numeric"></div>
+    <div class="f"><label>備註（可留空）</label><input id="ln" placeholder="代課、穿線…"></div>
+    <div style="margin-top:20px"><button class="btn blue full" onclick="addLesson()">新增課堂</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="m-student">
+  <div class="sheet">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <span style="font-weight:700;font-size:17px">新增學員</span>
+      <button onclick="cm('m-student')" style="background:#27272a;color:#a1a1aa;border-radius:99px;width:28px;height:28px;font-size:15px">&#10005;</button>
+    </div>
+    <div class="f"><label>學員姓名 *</label><input id="sn" placeholder="姓名"></div>
+    <div class="f"><label>教練</label><input id="sc" value="陳文彥教練"></div>
+    <div class="f"><label>上課場地</label><input id="sv" placeholder="場地名稱"></div>
+    <div class="f"><label>學費（元）*</label><input id="st" placeholder="17000" type="number" inputmode="numeric"></div>
+    <div class="f"><label>課時數（小時）</label><input id="sh" value="10" type="number" inputmode="numeric"></div>
+    <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="si" checked style="width:18px;height:18px;accent-color:#3b82f6">
+      <label for="si" style="font-size:13px">場地費已包含在學費內</label>
+    </div>
+    <div id="sff" style="display:none">
+      <div class="f"><label>白天場地費/hr</label><input id="sfd" value="140" type="number" inputmode="numeric"></div>
+      <div class="f"><label>晚上場地費/hr</label><input id="sfn" value="220" type="number" inputmode="numeric"></div>
+    </div>
+    <div style="margin-top:20px"><button class="btn green full" onclick="addStudent()">新增學員</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="m-pay">
+  <div class="sheet">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <span style="font-weight:700;font-size:17px">標記已繳費</span>
+      <button onclick="cm('m-pay')" style="background:#27272a;color:#a1a1aa;border-radius:99px;width:28px;height:28px;font-size:15px">&#10005;</button>
+    </div>
+    <div class="f"><label>付款備註</label><input id="pn" placeholder="3/21 現金 17000"></div>
+    <div style="margin-top:20px"><button class="btn green full" onclick="doPay()">確認已繳費</button></div>
+  </div>
+</div>
+
+<script>
+var D=[
+  {id:1,name:"Michael",coach:"陳文彥教練",venue:"明巧室內網球場",tuition:17000,hp:10,inc:true,fd:0,fn:0,paid:true,pn:"1/21現金17000",tl:10,lessons:[
+    {id:1,d:"1/21",t:"7-8",f:0,n:""},{id:2,d:"1/21",t:"8-9",f:0,n:""},{id:3,d:"2/10",t:"7-8",f:0,n:""},{id:4,d:"2/10",t:"8-9",f:0,n:""},{id:5,d:"3/13",t:"7-8",f:0,n:""},{id:6,d:"3/13",t:"8-9",f:0,n:""}]},
+  {id:2,name:"睿航",coach:"陳文彥教練",venue:"大佳河濱球場 / 彩虹河濱球場",tuition:13000,hp:10,inc:false,fd:140,fn:220,paid:false,pn:"Line Pay：未付",tl:10,lessons:[
+    {id:1,d:"12/5",t:"8-9",f:0,n:""},{id:2,d:"12/8",t:"8-9",f:140,n:""},{id:3,d:"2/6",t:"21-22",f:220,n:""},{id:4,d:"4/19",t:"10-11",f:140,n:""},{id:5,d:"7/6",t:"8-9",f:0,n:""},{id:6,d:"4/18",t:"10-11",f:140,n:""},{id:7,d:"4/19",t:"8-9",f:140,n:""}]},
+  {id:3,name:"岑建華",coach:"陳文彥教練",venue:"大佳河濱球場 / 彩虹河濱球場",tuition:11000,hp:10,inc:false,fd:140,fn:140,paid:true,pn:"3/21現金付款12400",tl:10,lessons:[
+    {id:1,d:"3/21",t:"8-9",f:0,n:""},{id:2,d:"4/18",t:"8-9",f:0,n:""},{id:3,d:"5/9",t:"8-9",f:0,n:""},{id:4,d:"5/16",t:"8-9",f:0,n:""}]},
+  {id:4,name:"蕭力婷",coach:"陳文彥教練",venue:"彩虹河濱球場",tuition:15000,hp:10,inc:false,fd:140,fn:220,paid:false,pn:"Line Pay ID: asd13563",tl:10,lessons:[
+    {id:1,d:"3/8",t:"10-11",f:0,n:""},{id:2,d:"3/28",t:"7-8",f:0,n:""},{id:3,d:"4/18",t:"7-8",f:0,n:""}]},
+  {id:5,name:"張國領",coach:"陳文彥教練",venue:"大佳河濱球場 / 彩虹河濱球場",tuition:10500,hp:10,inc:false,fd:140,fn:140,paid:false,pn:"",tl:10,lessons:[
+    {id:1,d:"1/11",t:"10-11",f:0,n:""},{id:2,d:"1/18",t:"10-11",f:0,n:""},{id:3,d:"2/7",t:"9-10",f:140,n:"已付"},{id:4,d:"3/22",t:"9-10",f:140,n:"已付"},{id:5,d:"3/29",t:"9-10",f:140,n:"已付"},{id:6,d:"4/19",t:"9-10",f:140,n:""},{id:7,d:"5/10",t:"10-11",f:140,n:""},{id:8,d:"5/24",t:"9-10",f:70,n:""}]},
+  {id:6,name:"林奕辰",coach:"陳文彥教練",venue:"大佳河濱球場 / 彩虹河濱球場",tuition:13000,hp:10,inc:false,fd:140,fn:220,paid:false,pn:"月付",tl:10,lessons:[
+    {id:1,d:"12/6",t:"9-10",f:140,n:""},{id:2,d:"12/28",t:"10-11",f:0,n:"小嫻代課"},{id:3,d:"1/11",t:"9-10",f:140,n:"小嫻代課"},{id:4,d:"1/17",t:"9-10",f:140,n:"小嫻代課"},{id:5,d:"2/8",t:"10-11",f:140,n:""},{id:6,d:"2/28",t:"9-10",f:140,n:"穿線625×2"},{id:7,d:"3/28",t:"9-10",f:140,n:""},{id:8,d:"4/18",t:"9-10",f:140,n:""}]},
+  {id:7,name:"Jason",coach:"陳文彥教練",venue:"彩虹河濱球場",tuition:13000,hp:10,inc:false,fd:140,fn:220,paid:true,pn:"9/28轉帳",tl:10,lessons:[
+    {id:1,d:"1/11",t:"9-10",f:140,n:""},{id:2,d:"1/18",t:"8-9",f:140,n:""},{id:3,d:"2/28",t:"10-11",f:140,n:""},{id:4,d:"3/8",t:"9-10",f:140,n:""},{id:5,d:"3/22",t:"9-10",f:140,n:""},{id:6,d:"3/29",t:"8-9",f:140,n:""},{id:7,d:"3/29",t:"9-10",f:140,n:""},{id:8,d:"5/10",t:"8-9",f:140,n:""},{id:9,d:"5/10",t:"9-10",f:140,n:""},{id:10,d:"5/24",t:"8-9",f:140,n:""}]}
+];
+
+var ss,cid;
+function load(){try{var x=localStorage.getItem("tc3");if(x)return JSON.parse(x);}catch(e){}return JSON.parse(JSON.stringify(D));}
+function save(){try{localStorage.setItem("tc3",JSON.stringify(ss));}catch(e){}}
+function g(id){return ss.find(function(s){return s.id===id;});}
+function tf(s){return s.lessons.reduce(function(a,l){return a+(l.f||0);},0);}
+function cm(id){document.getElementById(id).classList.remove("open");}
+function om(id){document.getElementById(id).classList.add("open");}
+
+function showPage(id){
+  document.querySelectorAll(".page").forEach(function(p){p.classList.remove("active");});
+  document.getElementById("page-"+id).classList.add("active");
+  window.scrollTo(0,0);
+}
+function goList(){showPage("list");renderList();}
+function goDetail(id){cid=id;showPage("detail");renderDetail();}
+
+function renderList(){
+  document.getElementById("sub").textContent="陳文彥教練 · "+ss.length+" 位學員";
+  document.getElementById("list-body").innerHTML=ss.map(function(s){
+    var u=s.lessons.length,rem=s.tl-u,p=Math.min(u/s.tl,1);
+    var r=22,c=2*Math.PI*r,rc=p>=1?"#ef4444":p>=0.7?"#f59e0b":"#10b981";
+    var b='<span class="badge '+(s.paid?'bg':'br')+'">'+(s.paid?'✓ 已繳費':'⚠ 未繳費')+'</span>';
+    if(rem<=3&&rem>0)b+=' <span class="badge br">剩 '+rem+' 堂</span>';
+    if(rem<=0)b+=' <span class="badge bx">課時用完</span>';
+    if(!s.inc&&tf(s)>0)b+=' <span class="badge bb">場地費 $'+tf(s)+'</span>';
+    return '<div class="card" style="display:flex;align-items:center;gap:14px;cursor:pointer" onclick="goDetail('+s.id+')">'+
+      '<div style="position:relative;width:56px;height:56px;flex-shrink:0">'+
+      '<svg width="56" height="56" style="transform:rotate(-90deg)">'+
+      '<circle cx="28" cy="28" r="'+r+'" fill="none" stroke="#27272a" stroke-width="6"/>'+
+      '<circle cx="28" cy="28" r="'+r+'" fill="none" stroke="'+rc+'" stroke-width="6" stroke-linecap="round" stroke-dasharray="'+(p*c)+' '+c+'"/>'+
+      '</svg><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">'+u+'/'+s.tl+'</div></div>'+
+      '<div style="flex:1;min-width:0">'+
+      '<div style="font-weight:700;font-size:17px;margin-bottom:4px">'+s.name+'</div>'+
+      '<div style="font-size:12px;color:#71717a;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+s.venue+'</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:5px">'+b+'</div></div>'+
+      '<div style="color:#52525b;font-size:22px">&#8250;</div></div>';
+  }).join("");
+}
+
+function renderDetail(){
+  var s=g(cid);if(!s)return;
+  document.getElementById("dtitle").textContent=s.name;
+  var u=s.lessons.length,p=u/s.tl,bc=u>=s.tl?"#ef4444":p>=0.7?"#f59e0b":"#10b981";
+  var lh=[...s.lessons].reverse().map(function(l,i){
+    var n=s.lessons.length-i;
+    return '<div class="lr"><div class="nb">'+n+'</div><div style="flex:1">'+
+      '<div style="font-weight:600;font-size:14px">'+l.d+' <span style="color:#71717a;font-weight:400">'+l.t+'</span></div>'+
+      (l.f>0?'<div style="font-size:12px;color:#60a5fa;margin-top:2px">場地費 $'+l.f+'</div>':'')+
+      (l.n?'<div style="font-size:11px;color:#a1a1aa;margin-top:2px">'+l.n+'</div>':'')+
+      '</div><button class="btn gray sm" onclick="delLesson('+l.id+')">刪除</button></div>';
+  }).join("");
+  document.getElementById("detail-body").innerHTML=
+    '<div class="card"><div class="g2">'+
+    '<div><div class="lb">教練</div><div style="font-weight:500">'+s.coach+'</div></div>'+
+    '<div><div class="lb">學費</div><div style="font-weight:700;color:#fbbf24">$'+s.tuition.toLocaleString()+' / '+s.hp+'小時</div></div>'+
+    '<div style="grid-column:1/-1"><div class="lb">上課場地</div><div>'+s.venue+'</div></div>'+
+    '<div style="grid-column:1/-1"><div class="lb">場地費</div><div style="color:'+(s.inc?'#10b981':'#f59e0b')+'">'+
+    (s.inc?'已包含在學費內':'白天 $'+s.fd+' / 晚上 $'+s.fn+' /hr')+'</div></div></div></div>'+
+    '<div class="card" style="border-color:'+(s.paid?'rgba(22,163,74,0.3)':'rgba(220,38,38,0.3)')+';display:flex;align-items:center;justify-content:space-between">'+
+    '<div><div class="lb">付款狀態</div>'+
+    '<div style="font-weight:700;color:'+(s.paid?'#4ade80':'#f87171')+';margin-bottom:'+(s.pn?4:0)+'px">'+(s.paid?'✓ 已繳費':'✗ 未繳費')+'</div>'+
+    (s.pn?'<div style="font-size:12px;color:#a1a1aa">'+s.pn+'</div>':'')+
+    '</div><button class="btn '+(s.paid?'gray':'green')+' sm" onclick="togglePay()">'+(s.paid?'取消繳費':'標記已繳費')+'</button></div>'+
+    '<div class="card">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
+    '<div style="font-weight:600;font-size:14px">課時進度</div>'+
+    '<div style="font-size:18px;font-weight:700;color:#fbbf24">'+u+'<span style="color:#52525b;font-size:14px"> / '+s.tl+'</span></div></div>'+
+    '<div style="background:#27272a;border-radius:99px;height:8px;overflow:hidden">'+
+    '<div style="height:100%;border-radius:99px;background:'+bc+';width:'+Math.min(p,1)*100+'%"></div></div>'+
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:#71717a;margin-top:6px">'+
+    '<span>已上 '+u+' 堂</span><span>剩餘 '+(s.tl-u)+' 堂</span></div>'+
+    (!s.inc?'<div style="margin-top:10px;padding-top:10px;border-top:1px solid #27272a;display:flex;justify-content:space-between;font-size:13px">'+
+    '<span style="color:#71717a">累計場地費</span><span style="font-weight:700;color:#60a5fa">$'+tf(s).toLocaleString()+'</span></div>':'')+
+    '</div>'+
+    '<div style="font-weight:600;font-size:14px;margin-bottom:10px;color:#a1a1aa">課堂記錄</div>'+
+    (s.lessons.length===0?'<div style="text-align:center;color:#52525b;padding:30px 0;font-size:14px">尚未新增課堂</div>':lh)+
+    '<div style="margin-top:28px;padding-top:20px;border-top:1px solid #27272a;text-align:center">'+
+    '<button class="btn red sm" onclick="delStudent()">刪除此學員</button></div>';
+}
+
+function openAddLesson(){
+  var s=g(cid);
+  document.getElementById("lfw").style.display=s.inc?"none":"block";
+  document.getElementById("ld").value="";document.getElementById("lt").value="";
+  document.getElementById("lf").value="";document.getElementById("ln").value="";
+  om("m-lesson");
+}
+function addLesson(){
+  var d=document.getElementById("ld").value.trim(),t=document.getElementById("lt").value.trim();
+  if(!d||!t){alert("請填入日期和時段");return;}
+  var s=g(cid),mx=s.lessons.reduce(function(m,l){return Math.max(m,l.id);},0);
+  s.lessons.push({id:mx+1,d:d,t:t,f:Number(document.getElementById("lf").value)||0,n:document.getElementById("ln").value.trim()});
+  save();cm("m-lesson");renderDetail();
+}
+function delLesson(lid){
+  if(!confirm("確定刪除這堂課？"))return;
+  var s=g(cid);s.lessons=s.lessons.filter(function(l){return l.id!==lid;});
+  save();renderDetail();
+}
+
+function openAddStudent(){
+  document.getElementById("sn").value="";document.getElementById("sc").value="陳文彥教練";
+  document.getElementById("sv").value="";document.getElementById("st").value="";
+  document.getElementById("sh").value="10";document.getElementById("si").checked=true;
+  document.getElementById("sff").style.display="none";om("m-student");
+}
+document.getElementById("si").addEventListener("change",function(){
+  document.getElementById("sff").style.display=this.checked?"none":"block";
+});
+function addStudent(){
+  var n=document.getElementById("sn").value.trim(),t=Number(document.getElementById("st").value);
+  if(!n||!t){alert("請填入姓名和學費");return;}
+  var id=Math.max.apply(null,ss.map(function(s){return s.id;}).concat([0]))+1;
+  var h=Number(document.getElementById("sh").value)||10,inc=document.getElementById("si").checked;
+  ss.push({id:id,name:n,coach:document.getElementById("sc").value.trim()||"陳文彥教練",
+    venue:document.getElementById("sv").value.trim(),tuition:t,hp:h,tl:h,
+    inc:inc,fd:inc?0:Number(document.getElementById("sfd").value)||140,
+    fn:inc?0:Number(document.getElementById("sfn").value)||220,
+    paid:false,pn:"",lessons:[]});
+  save();cm("m-student");renderList();
+}
+
+function togglePay(){
+  var s=g(cid);
+  if(s.paid){s.paid=false;s.pn="";save();renderDetail();}
+  else{document.getElementById("pn").value="";om("m-pay");}
+}
+function doPay(){
+  var s=g(cid);s.paid=true;s.pn=document.getElementById("pn").value.trim();
+  save();cm("m-pay");renderDetail();
+}
+function delStudent(){
+  if(!confirm("確定要刪除「"+g(cid).name+"」的所有資料？"))return;
+  ss=ss.filter(function(s){return s.id!==cid;});
+  save();goList();
+}
+
+document.querySelectorAll(".overlay").forEach(function(o){
+  o.addEventListener("click",function(e){if(e.target===this)this.classList.remove("open");});
+});
+
+ss=load();renderList();
+</script>
+</body>
+</html>

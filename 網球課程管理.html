@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎾 網球課程管理</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #09090b; font-family: 'Noto Sans TC', sans-serif; color: #e4e4e7; }
+  input:focus { outline: 2px solid #3b82f6; outline-offset: 1px; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #18181b; }
+  ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 99px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const DEFAULT_STUDENTS = [
+  {
+    id: 1, name: "Michael", coach: "陳文彥教練", venue: "明巧室內網球場",
+    tuition: 17000, hoursPerPackage: 10, courtFeeIncluded: true,
+    courtFeeDay: 0, courtFeeNight: 0, paid: true, paidNote: "1/21現金17000",
+    totalLessons: 10,
+    lessons: [
+      { id: 1, date: "1/21", timeSlot: "7-8", courtFee: 0, note: "" },
+      { id: 2, date: "1/21", timeSlot: "8-9", courtFee: 0, note: "" },
+      { id: 3, date: "2/10", timeSlot: "7-8", courtFee: 0, note: "" },
+      { id: 4, date: "2/10", timeSlot: "8-9", courtFee: 0, note: "" },
+      { id: 5, date: "3/13", timeSlot: "7-8", courtFee: 0, note: "" },
+      { id: 6, date: "3/13", timeSlot: "8-9", courtFee: 0, note: "" },
+    ],
+  },
+  {
+    id: 2, name: "睿航", coach: "陳文彥教練", venue: "大佳河濱球場 / 彩虹河濱球場",
+    tuition: 13000, hoursPerPackage: 10, courtFeeIncluded: false,
+    courtFeeDay: 140, courtFeeNight: 220, paid: false, paidNote: "Line Pay：未付",
+    totalLessons: 10,
+    lessons: [
+      { id: 1, date: "12/5", timeSlot: "8-9", courtFee: 0, note: "" },
+      { id: 2, date: "12/8", timeSlot: "8-9", courtFee: 140, note: "" },
+      { id: 3, date: "2/6", timeSlot: "21-22", courtFee: 220, note: "" },
+      { id: 4, date: "4/19", timeSlot: "10-11", courtFee: 140, note: "" },
+      { id: 5, date: "7/6", timeSlot: "8-9", courtFee: 0, note: "" },
+      { id: 6, date: "4/18", timeSlot: "10-11", courtFee: 140, note: "" },
+      { id: 7, date: "4/19", timeSlot: "8-9", courtFee: 140, note: "" },
+    ],
+  },
+  {
+    id: 3, name: "岑建華", coach: "陳文彥教練", venue: "大佳河濱球場 / 彩虹河濱球場",
+    tuition: 11000, hoursPerPackage: 10, courtFeeIncluded: false,
+    courtFeeDay: 140, courtFeeNight: 140, paid: true, paidNote: "3/21現金付款12400",
+    totalLessons: 10,
+    lessons: [
+      { id: 1, date: "3/21", timeSlot: "8-9", courtFee: 0, note: "" },
+      { id: 2, date: "4/18", timeSlot: "8-9", courtFee: 0, note: "" },
+      { id: 3, date: "5/9", timeSlot: "8-9", courtFee: 0, note: "" },
+      { id: 4, date: "5/16", timeSlot: "8-9", courtFee: 0, note: "" },
+    ],
+  },
+  {
+    id: 4, name: "蕭力婷", coach: "陳文彥教練", venue: "彩虹河濱球場",
+    tuition: 15000, hoursPerPackage: 10, courtFeeIncluded: false,
+    courtFeeDay: 140, courtFeeNight: 220, paid: false, paidNote: "Line Pay ID: asd13563",
+    totalLessons: 10,
+    lessons: [
+      { id: 1, date: "3/8", timeSlot: "10-11", courtFee: 0, note: "" },
+      { id: 2, date: "3/28", timeSlot: "7-8", courtFee: 0, note: "" },
+      { id: 3, date: "4/18", timeSlot: "7-8", courtFee: 0, note: "" },
+    ],
+  },
+  {
+    id: 5, name: "張國領", coach: "陳文彥教練", venue: "大佳河濱球場 / 彩虹河濱球場",
+    tuition: 10500, hoursPerPackage: 10, courtFeeIncluded: false,
+    courtFeeDay: 140, courtFeeNight: 140, paid: false, paidNote: "",
+    totalLessons: 10,
+    lessons: [
+      { id: 1, date: "1/11", timeSlot: "10-11", courtFee: 0, note: "" },
+      { id: 2, date: "1/18", timeSlot: "10-11", courtFee: 0, note: "" },
+      { id: 3, date: "2/7", timeSlot: "9-10", courtFee: 140, note: "已付" },
+      { id: 4, date: "3/22", timeSlot: "9-10", courtFee: 140, note: "已付" },
+      { id: 5, date: "3/29", timeSlot: "9-10", courtFee: 140, note: "已付" },
+      { id: 6, date: "4/19", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 7, date: "5/10", timeSlot: "10-11", courtFee: 140, note: "" },
+      { id: 8, date: "5/24", timeSlot: "9-10", courtFee: 70, note: "" },
+    ],
+  },
+  {
+    id: 6, name: "林奕辰", coach: "陳文彥教練", venue: "大佳河濱球場 / 彩虹河濱球場",
+    tuition: 13000, hoursPerPackage: 10, courtFeeIncluded: false,
+    courtFeeDay: 140, courtFeeNight: 220, paid: false, paidNote: "月付",
+    totalLessons: 10,
+    lessons: [
+      { id: 1, date: "12/6", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 2, date: "12/28", timeSlot: "10-11", courtFee: 0, note: "小嫻代課" },
+      { id: 3, date: "1/11", timeSlot: "9-10", courtFee: 140, note: "小嫻代課" },
+      { id: 4, date: "1/17", timeSlot: "9-10", courtFee: 140, note: "小嫻代課" },
+      { id: 5, date: "2/8", timeSlot: "10-11", courtFee: 140, note: "" },
+      { id: 6, date: "2/28", timeSlot: "9-10", courtFee: 140, note: "穿線625×2" },
+      { id: 7, date: "3/28", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 8, date: "4/18", timeSlot: "9-10", courtFee: 140, note: "" },
+    ],
+  },
+  {
+    id: 7, name: "Jason", coach: "陳文彥教練", venue: "彩虹河濱球場",
+    tuition: 13000, hoursPerPackage: 10, courtFeeIncluded: false,
+    courtFeeDay: 140, courtFeeNight: 220, paid: true, paidNote: "9/28轉帳",
+    totalLessons: 10,
+    lessons: [
+      { id: 1, date: "1/11", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 2, date: "1/18", timeSlot: "8-9", courtFee: 140, note: "" },
+      { id: 3, date: "2/28", timeSlot: "10-11", courtFee: 140, note: "" },
+      { id: 4, date: "3/8", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 5, date: "3/22", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 6, date: "3/29", timeSlot: "8-9", courtFee: 140, note: "" },
+      { id: 7, date: "3/29", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 8, date: "5/10", timeSlot: "8-9", courtFee: 140, note: "" },
+      { id: 9, date: "5/10", timeSlot: "9-10", courtFee: 140, note: "" },
+      { id: 10, date: "5/24", timeSlot: "8-9", courtFee: 140, note: "" },
+    ],
+  },
+];
+
+function loadData() {
+  try {
+    const saved = localStorage.getItem("tennis_coach_data");
+    if (saved) return JSON.parse(saved);
+  } catch(e) {}
+  return DEFAULT_STUDENTS;
+}
+
+function saveData(students) {
+  try { localStorage.setItem("tennis_coach_data", JSON.stringify(students)); } catch(e) {}
+}
+
+function ProgressRing({ used, total, size = 56 }) {
+  const r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const pct = Math.min(used / total, 1);
+  const color = pct >= 1 ? "#ef4444" : pct >= 0.7 ? "#f59e0b" : "#10b981";
+  return (
+    <svg width={size} height={size} style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#27272a" strokeWidth={6} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={6}
+        strokeDasharray={`${pct * circ} ${circ}`} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Badge({ children, color }) {
+  const s = {
+    green: { background: "rgba(16,185,129,0.15)", color: "#4ade80", border: "1px solid rgba(16,185,129,0.3)" },
+    red:   { background: "rgba(239,68,68,0.15)",  color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" },
+    blue:  { background: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" },
+    gray:  { background: "rgba(63,63,70,0.5)",    color: "#a1a1aa", border: "1px solid rgba(63,63,70,0.4)" },
+  }[color] || {};
+  return <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, fontWeight: 600, ...s }}>{children}</span>;
+}
+
+function Btn({ children, onClick, color = "blue", small, full, style: extra }) {
+  const bg = { blue: "#2563eb", green: "#16a34a", gray: "#27272a", red: "#991b1b" }[color];
+  const tc = { gray: "#a1a1aa" }[color] || "#fff";
+  return (
+    <button onClick={onClick} style={{
+      background: bg, color: tc, border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 600,
+      fontFamily: "inherit", padding: small ? "6px 12px" : (full ? "13px" : "8px 14px"),
+      fontSize: small ? 12 : (full ? 15 : 13), width: full ? "100%" : undefined, ...extra
+    }}>{children}</button>
+  );
+}
+
+function InputField({ label, value, onChange, placeholder, type = "text", style: extra }) {
+  return (
+    <div style={{ marginTop: 12, ...extra }}>
+      {label && <div style={{ fontSize: 12, color: "#71717a", marginBottom: 4 }}>{label}</div>}
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: "100%", background: "#27272a", border: "1px solid #3f3f46", borderRadius: 10,
+          padding: "10px 12px", color: "#e4e4e7", fontSize: 14, fontFamily: "inherit", boxSizing: "border-box" }} />
+    </div>
+  );
+}
+
+function Modal({ title, onClose, onConfirm, confirmText, children }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50,
+      display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#1c1c1e", borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 500,
+        padding: "20px 20px 36px", maxHeight: "85vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, fontSize: 17 }}>{title}</div>
+          <button onClick={onClose} style={{ background: "#27272a", border: "none", color: "#a1a1aa",
+            borderRadius: 99, width: 28, height: 28, cursor: "pointer", fontSize: 15,
+            display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}>✕</button>
+        </div>
+        {children}
+        <div style={{ marginTop: 20 }}>
+          <Btn full onClick={onConfirm}>{confirmText}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [students, setStudents] = useState(loadData);
+  const [view, setView] = useState("list");
+  const [selectedId, setSelectedId] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [newLesson, setNewLesson] = useState({ date: "", timeSlot: "", courtFee: "", note: "" });
+  const [newStudent, setNewStudent] = useState({ name: "", coach: "陳文彥教練", venue: "", tuition: "",
+    hoursPerPackage: 10, courtFeeIncluded: true, courtFeeDay: 140, courtFeeNight: 220 });
+  const [payNote, setPayNote] = useState("");
+
+  useEffect(() => { saveData(students); }, [students]);
+
+  const sel = students.find(s => s.id === selectedId);
+  const totalFees = s => s.lessons.reduce((sum, l) => sum + (l.courtFee || 0), 0);
+  const remaining = s => s.totalLessons - s.lessons.length;
+
+  function update(id, fn) { setStudents(prev => prev.map(s => s.id === id ? fn(s) : s)); }
+
+  function doAddLesson() {
+    if (!newLesson.date || !newLesson.timeSlot) return;
+    update(selectedId, s => {
+      const maxId = s.lessons.reduce((m, l) => Math.max(m, l.id), 0);
+      return { ...s, lessons: [...s.lessons, { id: maxId + 1, date: newLesson.date,
+        timeSlot: newLesson.timeSlot, courtFee: Number(newLesson.courtFee) || 0, note: newLesson.note || "" }] };
+    });
+    setNewLesson({ date: "", timeSlot: "", courtFee: "", note: "" });
+    setModal(null);
+  }
+
+  function doRemoveLesson(lid) { update(selectedId, s => ({ ...s, lessons: s.lessons.filter(l => l.id !== lid) })); }
+
+  function doAddStudent() {
+    if (!newStudent.name || !newStudent.tuition) return;
+    const id = Math.max(...students.map(s => s.id), 0) + 1;
+    setStudents(prev => [...prev, { ...newStudent, id, tuition: Number(newStudent.tuition),
+      hoursPerPackage: Number(newStudent.hoursPerPackage), courtFeeDay: Number(newStudent.courtFeeDay),
+      courtFeeNight: Number(newStudent.courtFeeNight), totalLessons: Number(newStudent.hoursPerPackage),
+      paid: false, paidNote: "", lessons: [] }]);
+    setNewStudent({ name: "", coach: "陳文彥教練", venue: "", tuition: "", hoursPerPackage: 10,
+      courtFeeIncluded: true, courtFeeDay: 140, courtFeeNight: 220 });
+    setModal(null);
+  }
+
+  function doDeleteStudent(id) {
+    if (!window.confirm("確定要刪除這位學員的所有資料嗎？")) return;
+    setStudents(prev => prev.filter(s => s.id !== id));
+    setView("list");
+  }
+
+  function togglePaid() {
+    if (sel.paid) { update(selectedId, s => ({ ...s, paid: false, paidNote: "" })); }
+    else { setPayNote(""); setModal("payment"); }
+  }
+
+  function doPayment() {
+    update(selectedId, s => ({ ...s, paid: true, paidNote: payNote }));
+    setModal(null);
+  }
+
+  // ── LIST VIEW ──
+  if (view === "list") return (
+    <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
+      <div style={{ background: "linear-gradient(135deg,#18181b,#1c1917)", borderBottom: "1px solid #27272a",
+        padding: "16px 20px", display: "flex", alignItems: "center", gap: 12,
+        position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>🎾 網球課程管理</div>
+          <div style={{ fontSize: 12, color: "#71717a", marginTop: 2 }}>陳文彥教練 · {students.length} 位學員</div>
+        </div>
+        <Btn color="green" onClick={() => setModal("add_student")}>+ 新增學員</Btn>
+      </div>
+
+      <div style={{ padding: "16px" }}>
+        {students.map(s => {
+          const used = s.lessons.length;
+          const rem = remaining(s);
+          return (
+            <div key={s.id} onClick={() => { setSelectedId(s.id); setView("detail"); }}
+              style={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 16,
+                padding: 16, marginBottom: 12, cursor: "pointer", display: "flex",
+                alignItems: "center", gap: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.4)" }}>
+              <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
+                <ProgressRing used={used} total={s.totalLessons} />
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
+                  justifyContent: "center", fontSize: 12, fontWeight: 700, fontFamily: "DM Mono, monospace" }}>
+                  {used}/{s.totalLessons}
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>{s.name}</div>
+                <div style={{ fontSize: 12, color: "#71717a", marginBottom: 6,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.venue}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <Badge color={s.paid ? "green" : "red"}>{s.paid ? "✓ 已繳費" : "⚠ 未繳費"}</Badge>
+                  {rem <= 3 && rem > 0 && <Badge color="red">剩 {rem} 堂</Badge>}
+                  {rem <= 0 && <Badge color="gray">課時用完</Badge>}
+                  {!s.courtFeeIncluded && totalFees(s) > 0 && <Badge color="blue">場地費 ${totalFees(s)}</Badge>}
+                </div>
+              </div>
+              <div style={{ color: "#52525b", fontSize: 22 }}>›</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {modal === "add_student" && (
+        <Modal title="新增學員" onClose={() => setModal(null)} onConfirm={doAddStudent} confirmText="新增學員">
+          <InputField label="學員姓名 *" value={newStudent.name} onChange={v => setNewStudent(p => ({...p, name: v}))} placeholder="姓名" />
+          <InputField label="教練" value={newStudent.coach} onChange={v => setNewStudent(p => ({...p, coach: v}))} placeholder="陳文彥教練" />
+          <InputField label="上課場地" value={newStudent.venue} onChange={v => setNewStudent(p => ({...p, venue: v}))} placeholder="場地名稱" />
+          <InputField label="學費（元）*" value={newStudent.tuition} onChange={v => setNewStudent(p => ({...p, tuition: v}))} placeholder="17000" type="number" />
+          <InputField label="課時數（小時）" value={newStudent.hoursPerPackage} onChange={v => setNewStudent(p => ({...p, hoursPerPackage: v}))} placeholder="10" type="number" />
+          <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+            <input type="checkbox" id="fi" checked={newStudent.courtFeeIncluded}
+              onChange={e => setNewStudent(p => ({...p, courtFeeIncluded: e.target.checked}))} style={{ width: 16, height: 16 }} />
+            <label htmlFor="fi" style={{ fontSize: 13 }}>場地費已包含在學費內</label>
+          </div>
+          {!newStudent.courtFeeIncluded && <>
+            <InputField label="白天場地費/hr" value={newStudent.courtFeeDay} onChange={v => setNewStudent(p => ({...p, courtFeeDay: v}))} placeholder="140" type="number" />
+            <InputField label="晚上場地費/hr" value={newStudent.courtFeeNight} onChange={v => setNewStudent(p => ({...p, courtFeeNight: v}))} placeholder="220" type="number" />
+          </>}
+        </Modal>
+      )}
+    </div>
+  );
+
+  // ── DETAIL VIEW ──
+  if (view === "detail" && sel) {
+    const used = sel.lessons.length;
+    const pct = used / sel.totalLessons;
+    const barColor = used >= sel.totalLessons ? "#ef4444" : pct >= 0.7 ? "#f59e0b" : "#10b981";
+    return (
+      <div style={{ minHeight: "100vh", paddingBottom: 60 }}>
+        {/* Header */}
+        <div style={{ background: "linear-gradient(135deg,#18181b,#1c1917)", borderBottom: "1px solid #27272a",
+          padding: "16px 20px", display: "flex", alignItems: "center", gap: 12,
+          position: "sticky", top: 0, zIndex: 10 }}>
+          <button onClick={() => setView("list")} style={{ background: "none", border: "none",
+            color: "#a1a1aa", fontSize: 26, cursor: "pointer", lineHeight: 1, padding: "0 6px 0 0",
+            fontFamily: "inherit" }}>‹</button>
+          <div style={{ flex: 1, fontSize: 18, fontWeight: 700 }}>{sel.name}</div>
+          <Btn color="blue" onClick={() => setModal("add_lesson")}>+ 新增課堂</Btn>
+        </div>
+
+        <div style={{ padding: "16px" }}>
+          {/* Info */}
+          <div style={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 16, padding: 16, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", fontSize: 13 }}>
+              <div>
+                <div style={{ color: "#71717a", fontSize: 11, marginBottom: 3 }}>教練</div>
+                <div style={{ fontWeight: 500 }}>{sel.coach}</div>
+              </div>
+              <div>
+                <div style={{ color: "#71717a", fontSize: 11, marginBottom: 3 }}>學費</div>
+                <div style={{ fontWeight: 700, color: "#fbbf24" }}>${sel.tuition.toLocaleString()} / {sel.hoursPerPackage}小時</div>
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <div style={{ color: "#71717a", fontSize: 11, marginBottom: 3 }}>上課場地</div>
+                <div>{sel.venue}</div>
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <div style={{ color: "#71717a", fontSize: 11, marginBottom: 3 }}>場地費</div>
+                <div style={{ color: sel.courtFeeIncluded ? "#10b981" : "#f59e0b" }}>
+                  {sel.courtFeeIncluded ? "已包含在學費內" : `白天 $${sel.courtFeeDay} / 晚上 $${sel.courtFeeNight} per hr`}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment */}
+          <div style={{ background: "#18181b", border: `1px solid ${sel.paid ? "rgba(22,163,74,0.3)" : "rgba(220,38,38,0.3)"}`,
+            borderRadius: 16, padding: 16, marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontSize: 12, color: "#71717a", marginBottom: 4 }}>付款狀態</div>
+              <div style={{ fontWeight: 700, color: sel.paid ? "#4ade80" : "#f87171", marginBottom: sel.paidNote ? 4 : 0 }}>
+                {sel.paid ? "✓ 已繳費" : "✗ 未繳費"}
+              </div>
+              {sel.paidNote && <div style={{ fontSize: 12, color: "#a1a1aa" }}>{sel.paidNote}</div>}
+            </div>
+            <Btn color={sel.paid ? "gray" : "green"} small onClick={togglePaid}>
+              {sel.paid ? "取消繳費" : "標記已繳費"}
+            </Btn>
+          </div>
+
+          {/* Progress */}
+          <div style={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 16, padding: 16, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>課時進度</div>
+              <div style={{ fontFamily: "DM Mono, monospace", fontSize: 18, fontWeight: 700, color: "#fbbf24" }}>
+                {used} <span style={{ color: "#52525b", fontSize: 14 }}>/ {sel.totalLessons}</span>
+              </div>
+            </div>
+            <div style={{ background: "#27272a", borderRadius: 99, height: 8, overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 99, background: barColor,
+                width: `${Math.min(pct, 1) * 100}%`, transition: "width 0.4s ease" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#71717a", marginTop: 6 }}>
+              <span>已上 {used} 堂</span>
+              <span>剩餘 {remaining(sel)} 堂</span>
+            </div>
+            {!sel.courtFeeIncluded && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #27272a",
+                display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                <span style={{ color: "#71717a" }}>累計場地費</span>
+                <span style={{ fontWeight: 700, color: "#60a5fa", fontFamily: "DM Mono, monospace" }}>
+                  ${totalFees(sel).toLocaleString()}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Lessons */}
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10, color: "#a1a1aa" }}>課堂記錄</div>
+          {sel.lessons.length === 0 && (
+            <div style={{ textAlign: "center", color: "#52525b", padding: "30px 0", fontSize: 14 }}>尚未新增課堂</div>
+          )}
+          {[...sel.lessons].reverse().map((l, i) => {
+            const num = sel.lessons.length - i;
+            return (
+              <div key={l.id} style={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 12,
+                padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: "#27272a", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 700, color: "#71717a", fontFamily: "DM Mono, monospace" }}>{num}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    {l.date} <span style={{ color: "#71717a", fontWeight: 400 }}>{l.timeSlot}</span>
+                  </div>
+                  {l.courtFee > 0 && <div style={{ fontSize: 12, color: "#60a5fa", marginTop: 2 }}>場地費 ${l.courtFee}</div>}
+                  {l.note ? <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 2 }}>{l.note}</div> : null}
+                </div>
+                <Btn color="gray" small onClick={() => doRemoveLesson(l.id)}>刪除</Btn>
+              </div>
+            );
+          })}
+
+          {/* Delete student */}
+          <div style={{ marginTop: 30, paddingTop: 20, borderTop: "1px solid #27272a", textAlign: "center" }}>
+            <Btn color="red" small onClick={() => doDeleteStudent(sel.id)}>刪除此學員</Btn>
+          </div>
+        </div>
+
+        {/* Add Lesson Modal */}
+        {modal === "add_lesson" && (
+          <Modal title="新增課堂" onClose={() => setModal(null)} onConfirm={doAddLesson} confirmText="新增課堂">
+            <InputField label="日期（如 5/30）" value={newLesson.date} onChange={v => setNewLesson(p => ({...p, date: v}))} placeholder="5/30" />
+            <InputField label="時段（如 8-9）" value={newLesson.timeSlot} onChange={v => setNewLesson(p => ({...p, timeSlot: v}))} placeholder="8-9" />
+            {!sel.courtFeeIncluded && (
+              <InputField label="場地費（可留空）" value={newLesson.courtFee} onChange={v => setNewLesson(p => ({...p, courtFee: v}))} placeholder="140" type="number" />
+            )}
+            <InputField label="備註（可留空）" value={newLesson.note} onChange={v => setNewLesson(p => ({...p, note: v}))} placeholder="例：代課、穿線" />
+          </Modal>
+        )}
+
+        {/* Payment Modal */}
+        {modal === "payment" && (
+          <Modal title="標記已繳費" onClose={() => setModal(null)} onConfirm={doPayment} confirmText="確認繳費">
+            <InputField label="付款備註（如：Line Pay / 現金）" value={payNote} onChange={setPayNote} placeholder="3/21 現金 17000" />
+          </Modal>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
